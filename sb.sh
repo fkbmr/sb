@@ -10,4 +10,5 @@ dotnet --info
 git clone https://gh-proxy.org/https://github.com/NirvanaTec/Fantnel.git
 dotnet build Fantnel.slnx
 dotnet publish -c Release -r linux-arm64 --self-contained true
+cd ~/Fantnel/Fantnel/bin/Release/net10.0/linux-arm64/publish/
 echo "sb"
