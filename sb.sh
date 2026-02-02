@@ -5,4 +5,4 @@ apt install -y libicu-dev git
 echo 'export PATH="$HOME/.dotnet:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 dotnet --info
-echo "安装完成！"
+echo "安装完成!"
