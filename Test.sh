@@ -1,3 +1,4 @@
+#!/bin/bash
 apt update && apt upgrade -y
 
 # 安装基本工具
@@ -5,24 +6,24 @@ apt install git wget unzip nano dialog curl -y
 
 # 函数：检查JDK是否已安装
 check_jdk_installed() {
-    local version=\$1
-    if dpkg -l | grep -q \"openjdk-\${version}-jdk\"; then
-        echo \"\"
+    local version=$1
+    if dpkg -l | grep -q "openjdk-${version}-jdk"; then
+        echo " (已安装)"
         return 0  # 返回true表示已安装
     else
-        echo \"\"
+        echo ""
         return 1  # 返回false表示未安装
     fi
 }
 
 # 函数：检查构建工具
 check_build_tool() {
-    local tool=\$1
-    if command -v \$tool &> /dev/null; then
-        echo \"\"
+    local tool=$1
+    if command -v $tool &> /dev/null; then
+        echo " (已安装)"
         return 0
     else
-        echo \"\"
+        echo ""
         return 1
     fi
 }
@@ -44,16 +45,16 @@ echo '-----------------------------------------'
 echo ''
 
 # 获取各个JDK的安装状态
-jdk8_status=\$(check_jdk_installed 8 && echo \"\" || echo \"\")
-jdk11_status=\$(check_jdk_installed 11 && echo \"\" || echo \"\")
-jdk17_status=\$(check_jdk_installed 17 && echo \"\" || echo \"\")
-jdk21_status=\$(check_jdk_installed 21 && echo \"\" || echo \"\")
+jdk8_status=$(check_jdk_installed 8 && echo " (已安装)" || echo "")
+jdk11_status=$(check_jdk_installed 11 && echo " (已安装)" || echo "")
+jdk17_status=$(check_jdk_installed 17 && echo " (已安装)" || echo "")
+jdk21_status=$(check_jdk_installed 21 && echo " (已安装)" || echo "")
 
 echo '请选择要安装的JDK版本：'
-echo '1)  JDK 8'\$jdk8_status
-echo '2)  JDK 11'\$jdk11_status
-echo '3)  JDK 17'\$jdk17_status
-echo '4)  JDK 21'\$jdk21_status
+echo "1)  JDK 8$jdk8_status"
+echo "2)  JDK 11$jdk11_status"
+echo "3)  JDK 17$jdk17_status"
+echo "4)  JDK 21$jdk21_status"
 echo '5)  请选择一个版本 (8-21之间)'
 echo '6)  跳过JDK安装'
 echo '7)  退出安装程序'
@@ -61,7 +62,7 @@ echo ''
 read -p '请输入选择 (1-7): ' jdk_choice
 
 # 处理JDK选择
-case \$jdk_choice in
+case $jdk_choice in
     1)
         selected_jdk_version=8
         selected_jdk_package='openjdk-8-jdk'
@@ -81,9 +82,9 @@ case \$jdk_choice in
     5)
         while true; do
             read -p '请输入JDK版本 (8-21): ' custom_version
-            if [[ \$custom_version =~ ^[0-9]+\$ ]] && [ \$custom_version -ge 8 ] && [ \$custom_version -le 21 ]; then
-                selected_jdk_version=\$custom_version
-                selected_jdk_package=\"openjdk-\$custom_version-jdk\"
+            if [[ $custom_version =~ ^[0-9]+$ ]] && [ $custom_version -ge 8 ] && [ $custom_version -le 21 ]; then
+                selected_jdk_version=$custom_version
+                selected_jdk_package="openjdk-$custom_version-jdk"
                 break
             else
                 echo '错误：请输入8到21之间的数字！'
@@ -106,34 +107,34 @@ case \$jdk_choice in
 esac
 
 # 安装JDK（如果不是跳过）
-if [ \"\$jdk_choice\" != \"6\" ]; then
+if [ "$jdk_choice" != "6" ]; then
     echo ''
     echo '安装信息:'
     echo '-----------------------------------------'
-    echo '选择的JDK版本: JDK '\$selected_jdk_version
-    echo '安装包: '\$selected_jdk_package
+    echo "选择的JDK版本: JDK $selected_jdk_version"
+    echo "安装包: $selected_jdk_package"
     
     # 检查是否已安装
-    if dpkg -l | grep -q \"\${selected_jdk_package}\"; then
+    if dpkg -l | grep -q "${selected_jdk_package}"; then
         echo '状态: 已安装'
         echo '注意：已安装JDK，但会设置为默认版本'
         jdk_installed=true
         
         # 设置选择的JDK为默认
         if command -v update-alternatives &> /dev/null; then
-            echo '正在设置JDK '\$selected_jdk_version' 为默认版本...'
+            echo "正在设置JDK $selected_jdk_version 为默认版本..."
             # 查找Java可执行文件
-            java_path=\$(update-alternatives --list java 2>/dev/null | grep \"java-\$selected_jdk_version\" | head -1)
-            if [ -n \"\$java_path\" ]; then
+            java_path=$(update-alternatives --list java 2>/dev/null | grep "java-$selected_jdk_version" | head -1)
+            if [ -n "$java_path" ]; then
                 # 设置Java环境变量
-                export JAVA_HOME=\$(dirname \"\$(dirname \"\$java_path\")\")
-                export PATH=\"\$JAVA_HOME/bin:\$PATH\"
+                export JAVA_HOME=$(dirname "$(dirname "$java_path")")
+                export PATH="$JAVA_HOME/bin:$PATH"
                 echo '' >> ~/.bashrc
                 echo '# Java Environment Variables' >> ~/.bashrc
-                echo 'export JAVA_HOME='\$JAVA_HOME >> ~/.bashrc
-                echo 'export PATH=\$JAVA_HOME/bin:\$PATH' >> ~/.bashrc
+                echo "export JAVA_HOME=$JAVA_HOME" >> ~/.bashrc
+                echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bashrc
                 source ~/.bashrc
-                echo '✓ 已将JDK '\$selected_jdk_version' 设置为默认版本'
+                echo "✓ 已将JDK $selected_jdk_version 设置为默认版本"
             fi
         fi
     else
@@ -143,17 +144,17 @@ if [ \"\$jdk_choice\" != \"6\" ]; then
         echo '-----------------------------------------'
         echo ''
         read -p '是否继续安装JDK？(y/n): ' confirm
-        if [[ \$confirm == 'y' || \$confirm == 'Y' ]]; then
-            echo '正在安装JDK '\$selected_jdk_version'...'
-            apt install \$selected_jdk_package -y
+        if [[ $confirm == 'y' || $confirm == 'Y' ]]; then
+            echo "正在安装JDK $selected_jdk_version..."
+            apt install $selected_jdk_package -y
             
             # 设置Java环境变量
-            java_home_path=\$(update-alternatives --list java 2>/dev/null | head -1 | sed 's|/bin/java||')
-            if [ -n \"\$java_home_path\" ]; then
+            java_home_path=$(update-alternatives --list java 2>/dev/null | head -1 | sed 's|/bin/java||')
+            if [ -n "$java_home_path" ]; then
                 echo '' >> ~/.bashrc
                 echo '# Java Environment Variables' >> ~/.bashrc
-                echo 'export JAVA_HOME='\$java_home_path >> ~/.bashrc
-                echo 'export PATH=\$JAVA_HOME/bin:\$PATH' >> ~/.bashrc
+                echo "export JAVA_HOME=$java_home_path" >> ~/.bashrc
+                echo 'export PATH=$JAVA_HOME/bin:$PATH' >> ~/.bashrc
                 source ~/.bashrc
                 echo '✓ Java环境变量已设置。'
             fi
@@ -176,11 +177,11 @@ echo ''
 echo '请选择要安装的构建工具：'
 
 # 检查构建工具状态
-gradle_status=\$(check_build_tool gradle && echo \"\" || echo \"\")
-maven_status=\$(check_build_tool mvn && echo \"\" || echo \"\")
+gradle_status=$(check_build_tool gradle)
+maven_status=$(check_build_tool mvn)
 
-echo '1)  Gradle'\$gradle_status
-echo '2)  Maven'\$maven_status
+echo "1)  Gradle$gradle_status"
+echo "2)  Maven$maven_status"
 echo '3)  两者都安装'
 echo '4)  跳过构建工具安装'
 echo '5)  退出'
@@ -191,7 +192,7 @@ read -p '请输入选择 (1-5): ' build_tool_choice
 gradle_to_install=false
 maven_to_install=false
 
-case \$build_tool_choice in
+case $build_tool_choice in
     1)
         gradle_to_install=true
         ;;
@@ -212,15 +213,15 @@ case \$build_tool_choice in
 esac
 
 # 安装Gradle
-if [ \"\$gradle_to_install\" = true ]; then
+if [ "$gradle_to_install" = true ]; then
     echo ''
     echo '=== Gradle 安装 ==='
     
     if check_build_tool gradle; then
-        current_version=\$(gradle --version 2>/dev/null | grep \"Gradle\" | head -1 | awk '{print \$2}')
-        echo \"检测到已安装Gradle \${current_version}\"
+        current_version=$(gradle --version 2>/dev/null | grep "Gradle" | head -1 | awk '{print $2}')
+        echo "检测到已安装Gradle ${current_version}"
         read -p '是否重新安装？(y/n): ' reinstall
-        if [[ \$reinstall != 'y' && \$reinstall != 'Y' ]]; then
+        if [[ $reinstall != 'y' && $reinstall != 'Y' ]]; then
             echo '保持当前Gradle版本。'
             gradle_installed=true
         else
@@ -230,7 +231,7 @@ if [ \"\$gradle_to_install\" = true ]; then
         gradle_installed=false
     fi
     
-    if [ \"\$gradle_installed\" = false ]; then
+    if [ "$gradle_installed" = false ]; then
         echo ''
         echo '请选择Gradle安装方式：'
         echo '1) 手动导入压缩包'
@@ -238,7 +239,7 @@ if [ \"\$gradle_to_install\" = true ]; then
         echo '3) 跳过Gradle安装'
         read -p '请输入选择 (1-3): ' gradle_install_method
         
-        case \$gradle_install_method in
+        case $gradle_install_method in
             1)
                 # 手动导入Gradle压缩包
                 echo ''
@@ -250,63 +251,63 @@ if [ \"\$gradle_to_install\" = true ]; then
                 read -p '压缩包路径: ' gradle_zip_path
                 
                 # 展开路径中的 ~
-                gradle_zip_path=\${gradle_zip_path/\~/\$HOME}
+                gradle_zip_path=${gradle_zip_path/\~/$HOME}
                 
-                if [ -f \"\$gradle_zip_path\" ]; then
+                if [ -f "$gradle_zip_path" ]; then
                     # 从文件名提取版本号
-                    filename=\$(basename \"\$gradle_zip_path\")
-                    if [[ \$filename =~ gradle-([0-9]+\.[0-9]+(\.[0-9]+)?)-bin\.zip ]]; then
-                        gradle_version=\${BASH_REMATCH[1]}
-                        echo \"检测到Gradle版本: \$gradle_version\"
+                    filename=$(basename "$gradle_zip_path")
+                    if [[ $filename =~ gradle-([0-9]+\.[0-9]+(\.[0-9]+)?)-bin\.zip ]]; then
+                        gradle_version=${BASH_REMATCH[1]}
+                        echo "检测到Gradle版本: $gradle_version"
                     else
                         echo '无法从文件名识别版本号，请手动输入：'
                         read -p 'Gradle版本: ' gradle_version
                     fi
                     
-                    read -p \"是否安装Gradle \$gradle_version? (y/n): \" confirm
-                    if [[ \$confirm == 'y' || \$confirm == 'Y' ]]; then
+                    read -p "是否安装Gradle $gradle_version? (y/n): " confirm
+                    if [[ $confirm == 'y' || $confirm == 'Y' ]]; then
                         echo '正在安装Gradle...'
                         
                         # 删除旧的gradle目录（如果存在）
-                        if [ -d \"/opt/gradle/gradle-\${gradle_version}\" ]; then
+                        if [ -d "/opt/gradle/gradle-${gradle_version}" ]; then
                             echo '删除旧的Gradle安装...'
-                            rm -rf \"/opt/gradle/gradle-\${gradle_version}\"
+                            rm -rf "/opt/gradle/gradle-${gradle_version}"
                         fi
                         
                         # 解压到/opt/gradle（使用-o参数自动覆盖）
                         echo '解压到 /opt/gradle...'
                         mkdir -p /opt/gradle
-                        unzip -q -o -d /opt/gradle \"\$gradle_zip_path\" 2>/dev/null
+                        unzip -q -o -d /opt/gradle "$gradle_zip_path" 2>/dev/null
                         
-                        if [ \$? -ne 0 ]; then
+                        if [ $? -ne 0 ]; then
                             echo '解压失败！尝试使用强制覆盖...'
                             # 使用更强制的方式
-                            cd /opt/gradle && unzip -o \"\$gradle_zip_path\" 2>/dev/null
+                            cd /opt/gradle && unzip -o "$gradle_zip_path" 2>/dev/null
                         fi
                         
-                        if [ -d \"/opt/gradle/gradle-\${gradle_version}\" ]; then
+                        if [ -d "/opt/gradle/gradle-${gradle_version}" ]; then
                             # 设置环境变量
                             echo '设置环境变量...'
                             echo '' >> ~/.bashrc
                             echo '# Gradle Environment Variables' >> ~/.bashrc
-                            echo \"export GRADLE_HOME=/opt/gradle/gradle-\${gradle_version}\" >> ~/.bashrc
-                            echo 'export PATH=\$GRADLE_HOME/bin:\$PATH' >> ~/.bashrc
+                            echo "export GRADLE_HOME=/opt/gradle/gradle-${gradle_version}" >> ~/.bashrc
+                            echo 'export PATH=$GRADLE_HOME/bin:$PATH' >> ~/.bashrc
                             
                             # 设置权限和软链接
-                            chmod +x /opt/gradle/gradle-\${gradle_version}/bin/gradle
+                            chmod +x /opt/gradle/gradle-${gradle_version}/bin/gradle
                             
                             # 删除旧的软链接（如果存在）
-                            if [ -L \"/usr/local/bin/gradle\" ]; then
+                            if [ -L "/usr/local/bin/gradle" ]; then
                                 rm /usr/local/bin/gradle
                             fi
                             
-                            ln -sf /opt/gradle/gradle-\${gradle_version}/bin/gradle /usr/local/bin/gradle
+                            ln -sf /opt/gradle/gradle-${gradle_version}/bin/gradle /usr/local/bin/gradle
                             
                             # 应用环境变量
                             source ~/.bashrc
                             
                             echo '✓ Gradle安装完成！'
-                            echo 'Gradle版本: ' \$(\$GRADLE_HOME/bin/gradle --version 2>/dev/null | grep \"Gradle\" | head -1 | awk '{print \$2}')
+                            echo 'Gradle版本: ' $($GRADLE_HOME/bin/gradle --version 2>/dev/null | grep "Gradle" | head -1 | awk '{print $2}')
                             gradle_installed=true
                         else
                             echo '错误：解压后目录不存在！'
@@ -319,7 +320,7 @@ if [ \"\$gradle_to_install\" = true ]; then
                     fi
                 else
                     echo '错误：文件不存在或无法访问！'
-                    echo '文件路径: '\$gradle_zip_path
+                    echo "文件路径: $gradle_zip_path"
                 fi
                 ;;
             2)
@@ -341,15 +342,15 @@ if [ \"\$gradle_to_install\" = true ]; then
 fi
 
 # 安装Maven
-if [ \"\$maven_to_install\" = true ]; then
+if [ "$maven_to_install" = true ]; then
     echo ''
     echo '=== Maven 安装 ==='
     
     if check_build_tool mvn; then
-        current_version=\$(mvn --version 2>/dev/null | grep \"Apache Maven\" | head -1 | awk '{print \$3}')
-        echo \"检测到已安装Maven \${current_version}\"
+        current_version=$(mvn --version 2>/dev/null | grep "Apache Maven" | head -1 | awk '{print $3}')
+        echo "检测到已安装Maven ${current_version}"
         read -p '是否重新安装？(y/n): ' reinstall
-        if [[ \$reinstall != 'y' && \$reinstall != 'Y' ]]; then
+        if [[ $reinstall != 'y' && $reinstall != 'Y' ]]; then
             echo '保持当前Maven版本。'
             maven_installed=true
         else
@@ -385,20 +386,20 @@ echo ''
 echo '当前环境状态：'
 
 # 显示环境状态
-if [ \"\$jdk_installed\" = true ]; then
-    java_version=\$(java -version 2>&1 | head -1 | sed 's/openjdk version \"//' | sed 's/\"//')
-    echo -e 'Java: \033[1;32m已安装 ('\$java_version')\033[0m'
+if [ "$jdk_installed" = true ]; then
+    java_version=$(java -version 2>&1 | head -1 | sed 's/openjdk version "//' | sed 's/"//')
+    echo -e "Java: \033[1;32m已安装 ($java_version)\033[0m"
 else
     echo -e 'Java: \033[1;31m未安装\033[0m'
 fi
 
-if [ \"\$gradle_installed\" = true ]; then
+if [ "$gradle_installed" = true ]; then
     if command -v gradle &> /dev/null; then
-        gradle_version=\$(gradle --version 2>/dev/null | grep \"Gradle\" | head -1 | awk '{print \$2}')
-        echo -e 'Gradle: \033[1;32m已安装 ('\$gradle_version')\033[0m'
-    elif [ -n \"\$GRADLE_HOME\" ] && [ -f \"\$GRADLE_HOME/bin/gradle\" ]; then
-        gradle_version=\$(\$GRADLE_HOME/bin/gradle --version 2>/dev/null | grep \"Gradle\" | head -1 | awk '{print \$2}')
-        echo -e 'Gradle: \033[1;32m已安装 ('\$gradle_version')\033[0m'
+        gradle_version=$(gradle --version 2>/dev/null | grep "Gradle" | head -1 | awk '{print $2}')
+        echo -e "Gradle: \033[1;32m已安装 ($gradle_version)\033[0m"
+    elif [ -n "$GRADLE_HOME" ] && [ -f "$GRADLE_HOME/bin/gradle" ]; then
+        gradle_version=$($GRADLE_HOME/bin/gradle --version 2>/dev/null | grep "Gradle" | head -1 | awk '{print $2}')
+        echo -e "Gradle: \033[1;32m已安装 ($gradle_version)\033[0m"
     else
         echo -e 'Gradle: \033[1;33m环境变量可能未生效\033[0m'
     fi
@@ -406,9 +407,9 @@ else
     echo -e 'Gradle: \033[1;31m未安装\033[0m'
 fi
 
-if [ \"\$maven_installed\" = true ]; then
-    maven_version=\$(mvn --version 2>/dev/null | grep \"Apache Maven\" | head -1 | awk '{print \$3}')
-    echo -e 'Maven: \033[1;32m已安装 ('\$maven_version')\033[0m'
+if [ "$maven_installed" = true ]; then
+    maven_version=$(mvn --version 2>/dev/null | grep "Apache Maven" | head -1 | awk '{print $3}')
+    echo -e "Maven: \033[1;32m已安装 ($maven_version)\033[0m"
 else
     echo -e 'Maven: \033[1;31m未安装\033[0m'
 fi
@@ -424,7 +425,7 @@ echo '5) 退出'
 echo ''
 read -p '请输入选择 (1-5): ' project_choice
 
-case \$project_choice in
+case $project_choice in
     1)
         # 输入项目路径进行构建
         echo ''
@@ -439,28 +440,28 @@ case \$project_choice in
         read -p '项目路径: ' project_path
         
         # 展开路径中的 ~
-        project_path=\${project_path/\~/\$HOME}
+        project_path=${project_path/\~/$HOME}
         
-        if [ -d \"\$project_path\" ]; then
+        if [ -d "$project_path" ]; then
             echo ''
             echo '项目信息：'
             echo '-----------------------------------------'
-            echo '路径: '\$project_path
-            ls -la \"\$project_path\" | head -10
+            echo "路径: $project_path"
+            ls -la "$project_path" | head -10
             
             # 检测项目类型
             echo ''
             echo '检测项目类型...'
-            if [ -f \"\$project_path/build.gradle\" ] || [ -f \"\$project_path/build.gradle.kts\" ]; then
+            if [ -f "$project_path/build.gradle" ] || [ -f "$project_path/build.gradle.kts" ]; then
                 project_type='gradle'
                 echo '✅ 检测到Gradle项目'
-            elif [ -f \"\$project_path/pom.xml\" ]; then
+            elif [ -f "$project_path/pom.xml" ]; then
                 project_type='maven'
                 echo '✅ 检测到Maven项目'
-            elif [ -f \"\$project_path/Makefile\" ]; then
+            elif [ -f "$project_path/Makefile" ]; then
                 project_type='make'
                 echo '✅ 检测到Make项目'
-            elif find \"\$project_path\" -name \"*.java\" | head -1 | grep -q \".java\"; then
+            elif find "$project_path" -name "*.java" | head -1 | grep -q ".java"; then
                 project_type='java'
                 echo '✅ 检测到Java源文件'
             else
@@ -479,32 +480,32 @@ case \$project_choice in
             echo ''
             read -p '请输入选择 (1-6): ' build_action
             
-            case \$build_action in
+            case $build_action in
                 1)
                     echo '正在编译项目...'
-                    case \$project_type in
+                    case $project_type in
                         gradle)
                             echo ''
                             echo '使用Gradle编译项目...'
                             
-                            cd \"\$project_path\"
+                            cd "$project_path"
                             
                             # 设置Java环境变量
-                            if [ \"\$jdk_installed\" = true ] && [ -n \"\$selected_jdk_version\" ]; then
+                            if [ "$jdk_installed" = true ] && [ -n "$selected_jdk_version" ]; then
                                 echo '设置Java环境...'
-                                echo '使用的JDK版本: '\$selected_jdk_version
+                                echo "使用的JDK版本: $selected_jdk_version"
                                 
                                 # 查找Java安装路径
-                                java_path=\$(update-alternatives --list java 2>/dev/null | grep \"java-\$selected_jdk_version\" | head -1)
-                                if [ -n \"\$java_path\" ]; then
-                                    export JAVA_HOME=\$(dirname \"\$(dirname \"\$java_path\")\")
-                                    export PATH=\"\$JAVA_HOME/bin:\$PATH\"
-                                    echo 'Java路径: '\$JAVA_HOME
+                                java_path=$(update-alternatives --list java 2>/dev/null | grep "java-$selected_jdk_version" | head -1)
+                                if [ -n "$java_path" ]; then
+                                    export JAVA_HOME=$(dirname "$(dirname "$java_path")")
+                                    export PATH="$JAVA_HOME/bin:$PATH"
+                                    echo "Java路径: $JAVA_HOME"
                                 fi
                             fi
                             
                             # 检查gradlew是否可用
-                            if [ -f \"gradlew\" ]; then
+                            if [ -f "gradlew" ]; then
                                 chmod +x gradlew
                                 echo '使用gradlew脚本...'
                                 echo '命令: ./gradlew clean --no-daemon'
@@ -562,8 +563,8 @@ case \$project_choice in
                             fi
                             ;;
                         maven)
-                            if [ \"\$maven_installed\" = true ]; then
-                                cd \"\$project_path\"
+                            if [ "$maven_installed" = true ]; then
+                                cd "$project_path"
                                 mvn compile
                             else
                                 echo '错误：Maven未安装！'
@@ -571,9 +572,9 @@ case \$project_choice in
                             ;;
                         java)
                             echo '手动编译Java文件：'
-                            cd \"\$project_path\"
+                            cd "$project_path"
                             mkdir -p bin
-                            javac -d bin \$(find . -name \"*.java\")
+                            javac -d bin $(find . -name "*.java")
                             ;;
                         *)
                             echo '请手动执行构建命令'
@@ -582,10 +583,10 @@ case \$project_choice in
                     ;;
                 2)
                     echo '正在运行项目...'
-                    cd \"\$project_path\"
-                    case \$project_type in
+                    cd "$project_path"
+                    case $project_type in
                         gradle)
-                            if [ -f \"gradlew\" ] && [ -x \"gradlew\" ]; then
+                            if [ -f "gradlew" ] && [ -x "gradlew" ]; then
                                 echo '使用gradlew运行...'
                                 ./gradlew run --no-daemon --stacktrace
                             elif command -v gradle &> /dev/null; then
@@ -596,7 +597,7 @@ case \$project_choice in
                             fi
                             ;;
                         maven)
-                            if [ \"\$maven_installed\" = true ]; then
+                            if [ "$maven_installed" = true ]; then
                                 mvn exec:java
                             else
                                 echo '错误：Maven未安装！'
@@ -604,10 +605,10 @@ case \$project_choice in
                             ;;
                         java)
                             # 查找主类
-                            main_class=\$(grep -r \"public static void main\" . --include=\"*.java\" | head -1 | cut -d: -f1 | sed 's/\\.java\$//' | sed 's|^\./||' | sed 's|/|.|g')
-                            if [ -n \"\$main_class\" ]; then
-                                echo \"找到主类: \$main_class\"
-                                java -cp bin \$main_class
+                            main_class=$(grep -r "public static void main" . --include="*.java" | head -1 | cut -d: -f1 | sed 's/\.java$//' | sed 's|^\./||' | sed 's|/|.|g')
+                            if [ -n "$main_class" ]; then
+                                echo "找到主类: $main_class"
+                                java -cp bin $main_class
                             else
                                 echo '未找到主类！'
                             fi
@@ -619,10 +620,10 @@ case \$project_choice in
                     ;;
                 3)
                     echo '正在清理构建...'
-                    cd \"\$project_path\"
-                    case \$project_type in
+                    cd "$project_path"
+                    case $project_type in
                         gradle)
-                            if [ -f \"gradlew\" ] && [ -x \"gradlew\" ]; then
+                            if [ -f "gradlew" ] && [ -x "gradlew" ]; then
                                 ./gradlew clean --no-daemon
                             elif command -v gradle &> /dev/null; then
                                 gradle clean --no-daemon
@@ -631,7 +632,7 @@ case \$project_choice in
                             fi
                             ;;
                         maven)
-                            if [ \"\$maven_installed\" = true ]; then
+                            if [ "$maven_installed" = true ]; then
                                 mvn clean
                             else
                                 echo '错误：Maven未安装！'
@@ -644,16 +645,16 @@ case \$project_choice in
                     ;;
                 4)
                     echo '正在打包项目...'
-                    cd \"\$project_path\"
-                    case \$project_type in
+                    cd "$project_path"
+                    case $project_type in
                         gradle)
-                            if [ -f \"gradlew\" ] && [ -x \"gradlew\" ]; then
+                            if [ -f "gradlew" ] && [ -x "gradlew" ]; then
                                 echo '使用gradlew打包...'
                                 ./gradlew clean --no-daemon
                                 ./gradlew build --no-daemon --stacktrace
                                 echo ''
                                 echo '打包完成！'
-                                if [ -d \"build/libs\" ]; then
+                                if [ -d "build/libs" ]; then
                                     echo '生成的JAR文件：'
                                     ls -lh build/libs/
                                 fi
@@ -663,7 +664,7 @@ case \$project_choice in
                                 gradle build --no-daemon --stacktrace
                                 echo ''
                                 echo '打包完成！'
-                                if [ -d \"build/libs\" ]; then
+                                if [ -d "build/libs" ]; then
                                     echo '生成的JAR文件：'
                                     ls -lh build/libs/
                                 fi
@@ -672,7 +673,7 @@ case \$project_choice in
                             fi
                             ;;
                         maven)
-                            if [ \"\$maven_installed\" = true ]; then
+                            if [ "$maven_installed" = true ]; then
                                 mvn package
                             else
                                 echo '错误：Maven未安装！'
@@ -686,10 +687,10 @@ case \$project_choice in
                     ;;
                 5)
                     echo '正在运行测试...'
-                    cd \"\$project_path\"
-                    case \$project_type in
+                    cd "$project_path"
+                    case $project_type in
                         gradle)
-                            if [ -f \"gradlew\" ] && [ -x \"gradlew\" ]; then
+                            if [ -f "gradlew" ] && [ -x "gradlew" ]; then
                                 ./gradlew test --no-daemon --stacktrace
                             elif command -v gradle &> /dev/null; then
                                 gradle test --no-daemon --stacktrace
@@ -698,7 +699,7 @@ case \$project_choice in
                             fi
                             ;;
                         maven)
-                            if [ \"\$maven_installed\" = true ]; then
+                            if [ "$maven_installed" = true ]; then
                                 mvn test
                             else
                                 echo '错误：Maven未安装！'
@@ -727,11 +728,11 @@ case \$project_choice in
         echo ''
         read -p '项目名称: ' new_project_name
         read -p '项目路径 (默认: ~/projects): ' project_base
-        project_base=\${project_base:-\$HOME/projects}
-        mkdir -p \"\$project_base\"
+        project_base=${project_base:-$HOME/projects}
+        mkdir -p "$project_base"
         
-        project_path=\"\$project_base/\$new_project_name\"
-        mkdir -p \"\$project_path\"
+        project_path="$project_base/$new_project_name"
+        mkdir -p "$project_path"
         
         echo ''
         echo '选择项目类型：'
@@ -740,15 +741,15 @@ case \$project_choice in
         echo '3) Maven项目'
         read -p '请输入选择 (1-3): ' new_project_type
         
-        case \$new_project_type in
+        case $new_project_type in
             1)
                 # 简单Java项目
-                mkdir -p \"\$project_path/src\"
-                cat > \"\$project_path/src/Main.java\" << EOF
+                mkdir -p "$project_path/src"
+                cat > "$project_path/src/Main.java" << EOF
 public class Main {
     public static void main(String[] args) {
-        System.out.println(\"Hello, World!\");
-        System.out.println(\"项目: \$new_project_name\");
+        System.out.println("Hello, World!");
+        System.out.println("项目: $new_project_name");
     }
 }
 EOF
@@ -756,8 +757,8 @@ EOF
                 ;;
             2)
                 # Gradle项目
-                if [ \"\$gradle_installed\" = true ]; then
-                    cd \"\$project_path\"
+                if [ "$gradle_installed" = true ]; then
+                    cd "$project_path"
                     gradle init --type java-application
                     echo 'Gradle项目创建完成！'
                 else
@@ -766,9 +767,9 @@ EOF
                 ;;
             3)
                 # Maven项目
-                if [ \"\$maven_installed\" = true ]; then
-                    cd \"\$project_path\"
-                    mvn archetype:generate -DgroupId=com.example -DartifactId=\$new_project_name -DarchetypeArtifactId=maven-archetype-quickstart -DinteractiveMode=false
+                if [ "$maven_installed" = true ]; then
+                    cd "$project_path"
+                    mvn archetype:generate -DgroupId=com.example -DartifactId=$new_project_name -DarchetypeArtifactId=maven-archetype-quickstart -DinteractiveMode=false
                     echo 'Maven项目创建完成！'
                 else
                     echo '错误：Maven未安装！'
@@ -778,7 +779,7 @@ EOF
         
         echo ''
         echo '项目创建完成！'
-        echo '路径: '\$project_path
+        echo "路径: $project_path"
         read -p '按回车键继续...' dummy
         ;;
     3)
@@ -794,7 +795,7 @@ EOF
         echo ''
         read -p '请输入选择 (1-4): ' example_choice
         
-        case \$example_choice in
+        case $example_choice in
             1)
                 echo ''
                 echo '简单Hello World项目：'
@@ -808,7 +809,7 @@ EOF
                 echo '-------------------'
                 echo 'public class Main {'
                 echo '    public static void main(String[] args) {'
-                echo '        System.out.println(\"Hello, World!\");'
+                echo '        System.out.println("Hello, World!");'
                 echo '    }'
                 echo '}'
                 echo ''
@@ -860,7 +861,7 @@ EOF
         echo ''
         echo '2. 测试Gradle环境...'
         if command -v gradle &> /dev/null; then
-            gradle --version 2>/dev/null | grep \"Gradle\" | head -1
+            gradle --version 2>/dev/null | grep "Gradle" | head -1
             echo 'Gradle测试通过'
         else
             echo 'Gradle未安装'
@@ -869,7 +870,7 @@ EOF
         echo ''
         echo '3. 测试Maven环境...'
         if command -v mvn &> /dev/null; then
-            mvn --version 2>/dev/null | grep \"Apache Maven\" | head -1
+            mvn --version 2>/dev/null | grep "Apache Maven" | head -1
             echo 'Maven测试通过'
         else
             echo 'Maven未安装'
@@ -877,24 +878,25 @@ EOF
         
         echo ''
         echo '4. 创建测试文件...'
-        test_dir=\"/tmp/java-test-\$(date +%s)\"
-        mkdir -p \"\$test_dir\"
-        cat > \"\$test_dir/Test.java\" << EOF
+        test_dir="/tmp/java-test-$(date +%s)"
+        mkdir -p "$test_dir"
+        cat > "$test_dir/Test.java" << EOF
 public class Test {
     public static void main(String[] args) {
-        System.out.println(\"环境测试成功！\");
-        System.out.println(\"Java版本: \" + System.getProperty(\"java.version\"));
-        System.out.println(\"工作目录: \" + System.getProperty(\"user.dir\"));
+        System.out.println("环境测试成功！");
+        System.out.println("Java版本: " + System.getProperty("java.version"));
+        System.out.println("工作目录: " + System.getProperty("user.dir"));
     }
 }
 EOF
         
-        cd \"\$test_dir\"
+        cd "$test_dir"
         javac Test.java
         java Test
         
-        rm -rf \"\$test_dir\"
+        rm -rf "$test_dir"
         echo ''
         echo '所有测试完成！'
         read -p '按回车键继续...' dummy
         ;;
+esac
