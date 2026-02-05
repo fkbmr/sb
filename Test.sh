@@ -172,173 +172,6 @@ auto_install_jdk(){
   fi
 }
 
-install_custom_jdk(){
-  local src="$1"
-  if [[ -z "$src" ]]; then err "未提供 URL/路径"; return 1; fi
-  if [[ "$src" =~ ^https?:// ]]; then
-    tmp="/tmp/custom_jdk_$(date +%s).tar.gz"
-    info "下载自定义 JDK..."
-    if ! wget -O "$tmp" "$src"; then err "下载失败"; return 1; fi
-    src="$tmp"
-  fi
-  if [[ ! -f "$src" ]]; then err "文件不存在: $src"; return 1; fi
-  dest="$HOME/jdk-custom-$(date +%s)"
-  ensure_dir "$dest"
-  info "解压到 $dest ..."
-  case "$src" in
-    *.tar.gz|*.tgz) tar -xzf "$src" -C "$dest" --strip-components=1 ;;
-    *.zip) unzip -q "$src" -d "$dest" ;;
-    *) err "不支持的压缩格式"; return 1 ;;
-  esac
-  shell_rc="$HOME/.bashrc"; [[ -n "${ZSH_VERSION-}" ]] && shell_rc="$HOME/.zshrc"
-  {
-    echo ""
-    echo "# mcdev custom jdk"
-    echo "export JAVA_HOME=\"$dest\""
-    echo 'export PATH=$JAVA_HOME/bin:$PATH'
-  } >> "$shell_rc"
-  export JAVA_HOME="$dest"; export PATH="$JAVA_HOME/bin:$PATH"
-  ok "自定义 JDK 已安装并写入 $shell_rc"
-  return 0
-}
-
-# -------------------------
-# ProGuard auto-download
-# -------------------------
-ensure_proguard(){
-  if [[ -f "$PROGUARD_JAR" ]]; then ok "ProGuard 就绪"; return 0; fi
-  info "正在下载 ProGuard..."
-  ensure_dir "$PROGUARD_DIR"
-  PG_VER="7.4.1"
-  PG_TGZ="proguard-${PG_VER}.tar.gz"
-  PG_URL="https://github.com/Guardsquare/proguard/releases/download/v${PG_VER}/${PG_TGZ}"
-  tmp="$PROGUARD_DIR/$PG_TGZ"
-  if wget -O "$tmp" "$PG_URL"; then
-    tar -xzf "$tmp" -C "$PROGUARD_DIR" --strip-components=1
-    if [[ -f "$PROGUARD_DIR/lib/proguard.jar" ]]; then
-      mv "$PROGUARD_DIR/lib/proguard.jar" "$PROGUARD_JAR"
-      rm -rf "$PROGUARD_DIR/lib" "$PROGUARD_DIR/bin" "$PROGUARD_DIR/docs"
-      rm -f "$tmp"
-      ok "ProGuard 已下载: $PROGUARD_JAR"
-      return 0
-    fi
-  fi
-  err "ProGuard 下载或解压失败"
-  return 1
-}
-
-# -------------------------
-# ZKM (ZelixKiller) auto-download (user-provided URL default)
-# -------------------------
-ensure_zkm(){
-  if [[ -f "$ZKM_JAR" ]]; then ok "ZKM 就绪"; return 0; fi
-  ensure_dir "$ZKM_DIR"
-  ZKM_URL_DEFAULT="https://raw.githubusercontent.com/fkbmr/sb/main/zkm.jar"
-  read -p "请输入 ZKM 下载 URL (回车使用默认): " zurl
-  zurl=${zurl:-$ZKM_URL_DEFAULT}
-  info "下载 ZKM..."
-  if wget -O "$ZKM_JAR" "$zurl"; then ok "ZKM 已下载: $ZKM_JAR"; return 0; else err "ZKM 下载失败"; return 1; fi
-}
-
-# -------------------------
-# CFR ensure (decompiler)
-# -------------------------
-ensure_cfr(){
-  if [[ -f "$CFR_JAR" ]]; then ok "CFR 就绪"; return 0; fi
-  ensure_dir "$CFR_DIR"
-  CFR_URL="https://www.benf.org/other/cfr/cfr-0.152.jar"
-  info "下载 CFR..."
-  if wget -O "$CFR_JAR" "$CFR_URL"; then ok "CFR 已下载"; return 0; else err "CFR 下载失败"; return 1; fi
-}
-
-# -------------------------
-# Gradle wrapper / install
-# -------------------------
-ensure_gradle_wrapper(){
-  if [[ -f "./gradlew" ]]; then chmod +x ./gradlew 2>/dev/null || true; ok "gradlew 已存在"; return 0; fi
-  warn "gradlew 不存在，尝试生成 wrapper..."
-  if ! command -v gradle >/dev/null 2>&1; then
-    warn "系统未安装 Gradle"
-    if [[ -n "$PKG_INSTALL_CMD" ]]; then
-      $PKG_INSTALL_CMD gradle || warn "自动安装 gradle 失败"
-    fi
-  fi
-  if command -v gradle >/dev/null 2>&1; then
-    gradle wrapper || { err "gradle wrapper 生成失败"; return 1; }
-    chmod +x ./gradlew
-    ok "Gradle wrapper 生成完成"
-    return 0
-  fi
-  return 1
-}
-
-install_gradle_from_zip(){
-  read -p "请输入 Gradle ZIP 本地路径或下载 URL: " zippath
-  [[ -z "$zippath" ]] && { warn "取消"; return 1; }
-  zippath="${zippath/#\~/$HOME}"
-  if [[ "$zippath" =~ ^https?:// ]]; then
-    tmp="/tmp/gradle_$(date +%s).zip"
-    info "下载 Gradle ZIP..."
-    wget -O "$tmp" "$zippath" || { err "下载失败"; return 1; }
-    zippath="$tmp"
-  fi
-  if [[ ! -f "$zippath" ]]; then err "文件不存在: $zippath"; return 1; fi
-  if [[ -w /opt ]]; then dest="/opt/gradle"; else dest="$HOME/.local/gradle"; fi
-  ensure_dir "$dest"
-  unzip -q -o "$zippath" -d "$dest"
-  folder=$(ls "$dest" | head -n1)
-  if [[ -x "$dest/$folder/bin/gradle" ]]; then
-    ln -sf "$dest/$folder/bin/gradle" /usr/local/bin/gradle 2>/dev/null || ln -sf "$dest/$folder/bin/gradle" "$HOME/.local/bin/gradle"
-    ok "Gradle 已安装到 $dest/$folder"
-    return 0
-  fi
-  err "Gradle 安装后未找到 bin/gradle"
-  return 1
-}
-
-# -------------------------
-# Maven ensure
-# -------------------------
-ensure_maven(){
-  if command -v mvn >/dev/null 2>&1; then ok "Maven 已安装"; return 0; fi
-  if [[ -n "$PKG_INSTALL_CMD" ]]; then
-    info "尝试安装 Maven..."
-    $PKG_INSTALL_CMD maven || { warn "自动安装 Maven 失败，请手动安装"; return 1; }
-    ok "Maven 安装完成"; return 0
-  fi
-  warn "无法自动安装 Maven，请手动安装"
-  return 1
-}
-
-# -------------------------
-# Gradle optimization & init (mirrors)
-# -------------------------
-configure_gradle_optimization(){
-  ensure_dir "$GRADLE_USER_HOME"
-  PROPS="$GRADLE_USER_HOME/gradle.properties"
-  if [[ -f /proc/meminfo ]]; then
-    mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    mem_mb=$((mem_kb/1024))
-  else mem_mb=2048; fi
-  xmx=$((mem_mb*70/100))
-  (( xmx > 4096 )) && xmx=4096
-  sed -i '/org.gradle.jvmargs/d' "$PROPS" 2>/dev/null || true
-  echo "org.gradle.jvmargs=-Xmx${xmx}m -Dfile.encoding=UTF-8" >> "$PROPS"
-  ok "写入 $PROPS (-Xmx ${xmx}m)"
-  INIT="$GRADLE_USER_HOME/init.gradle"
-  cat > "$INIT" <<'EOF'
-allprojects {
-  repositories {
-    maven { url 'https://maven.aliyun.com/repository/public/' }
-    mavenLocal()
-    mavenCentral()
-    google()
-  }
-}
-EOF
-  ok "写入 Gradle init (镜像)"
-}
-
 # -------------------------
 # Git clone (proxy options) and place selection
 # -------------------------
@@ -384,4 +217,78 @@ clone_repo(){
 # -------------------------
 # Choose existing project
 # -------------------------
-choose_existing_project
+choose_existing_project(){
+  load_config
+  ensure_dir "$PROJECT_BASE"
+  local dirs=()
+  for d in "$PROJECT_BASE"/*; do [[ -d "$d" ]] && dirs+=("$d"); done
+  if [[ ${#dirs[@]} -eq 0 ]]; then warn "未找到项目在 $PROJECT_BASE"; return 1; fi
+  echo "请选择项目："
+  select p in "${dirs[@]}" "取消"; do
+    if [[ "$p" == "取消" || -z "$p" ]]; then return 1; else build_menu "$p"; break; fi
+  done
+}
+
+# -------------------------
+# Main menu
+# -------------------------
+main_menu(){
+  load_config
+  check_storage_and_hint
+  ensure_basic_tools
+  configure_gradle_optimization
+  ensure_dir "$TOOLS_DIR" "$BASE/release" "$BASE/release/deobf" "$BASE/decompile"
+
+  while true; do
+    echo ""
+    echo -e "${CYAN}=== MCDev Ultimate Pipeline (Final) ===${RESET}"
+    echo "Project base: $PROJECT_BASE"
+    echo "1) 克隆 GitHub 项目 (并进入构建)"
+    echo "2) 选择已拉取项目 (构建菜单)"
+    echo "3) JDK：自动下载 / 自定义导入"
+    echo "4) 安装 / 导入 Gradle (ZIP)"
+    echo "5) 安装 Maven"
+    echo "6) 下载 Fabric MDK"
+    echo "7) 下载 Forge MDK"
+    echo "8) 生成 Gradle Wrapper (若缺失)"
+    echo "9) 确保 ProGuard (自动下载)"
+    echo "10) 确保 ZelixKiller (ZKM) 自动下载"
+    echo "11) 构建并混淆单项目"
+    echo "12) 批量构建 (projects/*)"
+    echo "13) 单项目：全流程 Pipeline (build→obf→zkm→deobf→decompile)"
+    echo "14) 批量 ZKM 反混淆 release/*.jar"
+    echo "15) CFR 反编译 deobf jar"
+    echo "16) 清理 Gradle 缓存"
+    echo "17) 显示 / 编辑 PROJECT_BASE"
+    echo "0) 退出"
+    read -p "选择: " opt
+    case "$opt" in
+      1) clone_repo ;;
+      2) choose_existing_project ;;
+      3) auto_install_jdk ;;
+      4) install_gradle_from_zip ;;
+      5) ensure_maven ;;
+      6) download_fabric_mdk ;;
+      7) download_forge_mdk ;;
+      8) ensure_gradle_wrapper ;;
+      9) ensure_proguard ;;
+      10) ensure_zkm ;;
+      11) choose_existing_project ;;  # enters build_menu
+      12) batch_build_all ;;
+      13) read -p "项目路径 (留空选择项目): " p; if [[ -z "$p" ]]; then choose_existing_project; else full_pipeline_project "$p"; fi ;;
+      14) batch_zkm_deobf ;;
+      15) read -p "deobf jar 路径 (回车自动): " j; j=${j:-$(ls "$BASE"/release/deobf/*.jar 2>/dev/null | head -n1)}; [[ -n "$j" ]] && cfr_decompile_single "$j" || warn "未找到 jar" ;;
+      16) clear_gradle_cache ;;
+      17) echo "当前 PROJECT_BASE=$PROJECT_BASE"; read -p "输入新 PROJECT_BASE (回车保持): " newp; [[ -n "$newp" ]] && { PROJECT_BASE="$newp"; save_config; } ;;
+      0) info "退出"; exit 0 ;;
+      *) warn "无效选项" ;;
+    esac
+  done
+}
+
+# -------------------------
+# start
+# -------------------------
+ensure_dir "$BASE" "$TOOLS_DIR" "$PROJECTS_LOCAL"
+load_config
+main_menu
