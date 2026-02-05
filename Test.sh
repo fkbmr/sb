@@ -51,7 +51,7 @@ if command -v pkg >/dev/null 2>&1; then
   IS_TERMUX=true
   PKG_INSTALL_CMD="sudo pkg install -y"
 elif command -v apt >/dev/null 2>&1; then
-  PKG_INSTALL_CMD="apt install -y"
+  PKG_INSTALL_CMD="apt-get install -y"
 elif command -v yum >/dev/null 2>&1; then
   PKG_INSTALL_CMD="sudo yum install -y"
 fi
