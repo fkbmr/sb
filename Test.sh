@@ -477,13 +477,22 @@ obfuscate_basic(){
   ensure_proguard || { err "ProGuard 未就绪"; return 1; }
   local out="${jar%.jar}-obf.jar"
   info "ProGuard 混淆 -> $(basename "$out")"
-  java -jar "$PROGUARD_JAR" -injars "$jar" -outjars "$out" -dontwarn -dontoptimize -dontshrink -keep public class * { public protected *; }
-  if [[ $? -eq 0 ]]; then
+  
+  # 更健壮地执行ProGuard
+  if java -jar "$PROGUARD_JAR" -injars "$jar" -outjars "$out" -dontwarn -dontoptimize -dontshrink -keep public class * { public protected *; }; then
     ok "ProGuard 混淆成功: $(basename "$out")"
-    cp -f "$out" "$(dirname "$jar")/../release/"
-    return 0
+    # 确保out文件存在再复制
+    if [[ -f "$out" ]]; then
+      cp -f "$out" "$(dirname "$jar")/../release/"
+      return 0
+    else
+      err "输出文件不存在: $out"
+      return 1
+    fi
   else
     err "ProGuard 混淆失败"
+    # 清理可能产生的无效输出文件
+    [[ -f "$out" ]] && rm -f "$out"
     return 1
   fi
 }
