@@ -330,7 +330,7 @@ configure_gradle_optimization(){
   (( xmx > 4096 )) && xmx=4096
   sed -i '/org.gradle.jvmargs/d' "$PROPS" 2>/dev/null || true
   echo "org.gradle.jvmargs=-Xmx${xmx}m -Dfile.encoding=UTF-8" >> "$PROPS"
-  ok "写入 $PROPS (-Xmx ${xmx}m)"
+  ok "写入 $PROPS (-Xmx ${xmx)m)"
   INIT="$GRADLE_USER_HOME/init.gradle"
   cat > "$INIT" <<'EOF'
 allprojects {
@@ -529,12 +529,13 @@ obfuscate_advanced(){
   local obf="${jar%.jar}-obf.jar"
   local secure="${jar%.jar}-secure.jar"
   
+  # 简化处理 stringer.jar 的逻辑
   if [[ -f "$STRINGER_JAR" ]]; then
     info "使用 stringer.jar 进行字符串加密..."
-    # 捕获 stringer 命令的输出状态
-    if java -jar "$STRINGER_JAR" --input "$obf" --output "$secure" --mode xor 2>&1 | sed 's/^/    /'; then
-      : # 命令成功，继续执行
-    else
+    # 直接执行命令，不进行复杂的 if 判断
+    java -jar "$STRINGER_JAR" --input "$obf" --output "$secure" --mode xor 2>&1 | sed 's/^/    /'
+    # 如果失败，则复制原始文件
+    if [[ $? -ne 0 ]]; then
       warn "stringer 失败，使用原始混淆文件"
       cp -f "$obf" "$secure"
     fi
