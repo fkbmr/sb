@@ -103,21 +103,41 @@ check_storage_and_hint(){
 # -------------------------
 # Ensure basic CLI tools
 # -------------------------
-ensure_basic_tools(){
-  local need=(git wget curl unzip zip tar sed awk javac)
-  local miss=()
-  for t in "${need[@]}"; do
-    if ! command -v "$t" >/dev/null 2>&1; then miss+=("$t"); fi
-  done
-  if [[ ${#miss[@]} -gt 0 ]]; then
-    warn "检测到缺失工具: ${miss[*]}"
-    if [[ -n "$PKG_INSTALL_CMD" ]]; then
-      info "尝试通过包管理器安装..."
-      $PKG_INSTALL_CMD "${miss[@]}" || warn "自动安装失败，请手动安装: ${miss[*]}"
-    else
-      warn "无法自动安装，请手动安装: ${miss[*]}"
+ensure_basic_tools() {
+    local need=(git wget curl unzip zip tar sed awk javac python3 make)
+    local miss=()
+    
+    # 检查命令是否存在
+    for cmd in "${need[@]}"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            miss+=("$cmd")
+        fi
+    done
+    
+    if [[ ${#miss[@]} -eq 0 ]]; then
+        echo "✓ 所有基础工具已安装"
+        return 0
     fi
-  fi
+    
+    echo "⚠ 缺失工具: ${miss[*]}"
+    
+    # 检查是否为Termux环境
+    if [[ -n "$TERMUX_VERSION" ]] || [[ -d "/data/data/com.termux" ]]; then
+        echo "📦 使用pkg安装..."
+        pkg update -y
+        for cmd in "${miss[@]}"; do
+            case "$cmd" in
+                javac) pkg install -y openjdk-17 ;;
+                python3) pkg install -y python ;;
+                *) pkg install -y "$cmd" ;;
+            esac
+        done
+    else
+        echo "📦 请手动安装: ${miss[*]}"
+        echo "  Ubuntu/Debian: sudo apt install ${miss[*]}"
+        echo "  CentOS/RHEL: sudo yum install ${miss[*]}"
+        echo "  macOS: brew install ${miss[*]}"
+    fi
 }
 
 # -------------------------
