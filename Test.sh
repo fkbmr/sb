@@ -93,24 +93,18 @@ check_storage_and_hint(){
   fi
 }
 
-# -------------------------
-# Ensure basic CLI tools
-# -------------------------
 ensure_basic_tools(){
   local need=(git wget curl unzip zip tar sed awk javac)
   local miss=()
+  
   for t in "${need[@]}"; do
-    if ! command -v "$t" >/dev/null 2>&1; then miss+=("$t"); fi
+    ! command -v "${t##*/}" >/dev/null 2>&1 && miss+=("$t")
   done
-  if [[ ${#miss[@]} -gt 0 ]]; then
-    warn "检测到缺失工具: ${miss[*]}"
-    if [[ -n "$PKG_INSTALL_CMD" ]]; then
-      info "尝试通过包管理器安装..."
-      $PKG_INSTALL_CMD "${miss[@]}" || warn "自动安装失败，请手动安装: ${miss[*]}"
-    else
-      warn "无法自动安装，请手动安装: ${miss[*]}"
-    fi
-  fi
+  
+  [[ ${#miss[@]} -gt 0 ]] && {
+    warn "安装缺失工具: ${miss[*]}"
+    apt update && apt install -y "${miss[@]}" || warn "安装失败"
+  }
 }
 
 # -------------------------
