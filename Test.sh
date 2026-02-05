@@ -47,7 +47,7 @@ IS_TERMUX=false
 PKG_INSTALL_CMD=""
 
 # Determine environment & package manager
-PKG_INSTALL_CMD="apt install -y"
+PKG_INSTALL_CMD="apt install"
 
 # -------------------------
 # Utility
