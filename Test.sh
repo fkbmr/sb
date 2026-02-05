@@ -111,9 +111,9 @@ ensure_basic_tools(){
   done
   if [[ ${#miss[@]} -gt 0 ]]; then
     warn "检测到缺失工具: ${miss[*]}"
-    if [[ -n "$PKG_INSTALL_CMD" ]]; then
+    if [[ -n "$APT_INSTALL_CMD" ]]; then
       info "尝试通过包管理器安装..."
-      $PKG_INSTALL_CMD "${miss[@]}" || warn "自动安装失败，请手动安装: ${miss[*]}"
+      $APT_INSTALL_CMD "${miss[@]}" || warn "自动安装失败，请手动安装: ${miss[*]}"
     else
       warn "无法自动安装，请手动安装: ${miss[*]}"
     fi
