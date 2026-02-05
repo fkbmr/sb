@@ -93,6 +93,9 @@ check_storage_and_hint(){
   fi
 }
 
+# -------------------------
+# Ensure basic CLI tools
+# -------------------------
 ensure_basic_tools(){
   local need=(git wget curl unzip zip tar sed awk javac)
   local miss=()
@@ -103,7 +106,7 @@ ensure_basic_tools(){
   
   [[ ${#miss[@]} -gt 0 ]] && {
     warn "安装缺失工具: ${miss[*]}"
-    apt update && apt install -y "${miss[@]}" || warn "安装失败"
+    $PKG_INSTALL_CMD "${miss[@]}" || warn "安装失败"
   }
 }
 
