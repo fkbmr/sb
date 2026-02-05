@@ -602,13 +602,24 @@ download_fabric_mdk(){
 download_forge_mdk(){
   read -p "输入 Minecraft 版本 (例: 1.20.1): " mcver
   [[ -z "$mcver" ]] && { warn "取消"; return 1; }
+  
   info "尝试获取 Forge 最新 promotion 对应 $mcver (可能需要手动确认)"
   JSON=$(curl -s https://files.minecraftforge.net/maven/net/minecraftforge/forge/promotions_slim.json 2>/dev/null)
+  
   ver=""
-  if[[ -n "$JSON" ]]; then ver=$(echo "$JSON" | grep -o "\"$mcver-[^\"]*\"" | head -n1 | tr -d '"';
-  if [[ -z "$ver" ]]; then read -p "输入 Forge 完整版本 (如 1.20.1-47.1.0) 或回车取消: " fullv; [[ -z "$fullv" ]] && { warn "取消"; return 1; }; ver="$fullv"; fi
+  if [[ -n "$JSON" ]]; then
+    ver=$(echo "$JSON" | grep -o "\"$mcver-[^\"]*\"" | head -n1 | tr -d '"')
+  fi
+  
+  if [[ -z "$ver" ]]; then
+    read -p "输入 Forge 完整版本 (如 1.20.1-47.1.0) 或回车取消: " fullv
+    [[ -z "$fullv" ]] && { warn "取消"; return 1; }
+    ver="$fullv"
+  fi
+  
   url="https://maven.minecraftforge.net/net/minecraftforge/forge/${ver}/forge-${ver}-mdk.zip"
   tmp="/tmp/forge-${ver}.zip"
+  
   wget -q -O "$tmp" "$url" || { err "下载失败: $url"; return 1; }
   dest="$PROJECTS_LOCAL/forge-$ver"
   ensure_dir "$dest"
