@@ -18,7 +18,13 @@ IFS=$'\n\t'
 # -------------------------
 # Colors & helpers
 # -------------------------
-RED="\033[1;31m"; GREEN="\033[1;32m"; YELLOW="\033[1;33m"; BLUE="\033[1;34m"; CYAN="\033[1;36m"; RESET="\033[0m"
+RED="\033[1;31m"
+GREEN="\033[1;32m"
+YELLOW="\033[1;33m"
+BLUE="\033[1;34m"
+CYAN="\033[1;36m"
+RESET="\033[0m"
+
 info(){ echo -e "${BLUE}[INFO]${RESET} $*"; }
 ok(){ echo -e "${GREEN}[OK]${RESET} $*"; }
 warn(){ echo -e "${YELLOW}[WARN]${RESET} $*"; }
@@ -71,9 +77,14 @@ load_config(){
     source "$CONFIG_FILE"
   fi
   if [[ -z "${PROJECT_BASE:-}" ]]; then
-    if [[ -d "$PROJECTS_SDCARD" ]]; then PROJECT_BASE="$PROJECTS_SDCARD"; else PROJECT_BASE="$PROJECTS_LOCAL"; fi
+    if [[ -d "$PROJECTS_SDCARD" ]]; then 
+      PROJECT_BASE="$PROJECTS_SDCARD"
+    else 
+      PROJECT_BASE="$PROJECTS_LOCAL"
+    fi
   fi
 }
+
 save_config(){
   ensure_dir "$(dirname "$CONFIG_FILE")"
   cat > "$CONFIG_FILE" <<EOF
@@ -107,7 +118,9 @@ ensure_basic_tools(){
   local need=(git wget curl unzip zip tar sed awk javac)
   local miss=()
   for t in "${need[@]}"; do
-    if ! command -v "$t" >/dev/null 2>&1; then miss+=("$t"); fi
+    if ! command -v "$t" >/dev/null 2>&1; then 
+      miss+=("$t")
+    fi
   done
   if [[ ${#miss[@]} -gt 0 ]]; then
     warn "检测到缺失工具: ${miss[*]}"
@@ -130,7 +143,7 @@ auto_install_jdk(){
     [[ "$keep" =~ ^[Yy]$ ]] && return 0
   fi
 
-  echo "请选择 JDK 版本：1)8  2)17(推荐)  3)21  4) 自定义 URL/本地包  5) 取消"
+  echo "请选择 JDK 版本：1)8  2)17(推荐)  3)21  4)自定义 URL/本地包  5)取消"
   read -p "选择 [1-5]: " c
   case "$c" in
     1) ver=8 ;;
@@ -159,7 +172,7 @@ auto_install_jdk(){
     info "下载完成，正在解压..."
     tar -xzf "$tmp" -C "$dest" --strip-components=1 || { err "解压失败"; return 1; }
     rm -f "$tmp"
-    shell_rc="$HOME/.bashrc"; [[ -n "${ZSH_VERSION-}" ]] && shell_rc="$HOME/.zshrc"
+    shell_rc="$HOME/.bashrc"; [[ -n "${ZSH_VERSION:-}" ]] && shell_rc="$HOME/.zshrc"
     if ! grep -q "mcdev jdk $ver" "$shell_rc" 2>/dev/null; then
       {
         echo ""
@@ -169,7 +182,8 @@ auto_install_jdk(){
       } >> "$shell_rc"
       ok "已写入 $shell_rc（重新打开 shell 或 source 生效）"
     fi
-    export JAVA_HOME="$dest"; export PATH="$JAVA_HOME/bin:$PATH"
+    export JAVA_HOME="$dest"
+    export PATH="$JAVA_HOME/bin:$PATH"
     ok "JDK $ver 安装完成"
     return 0
   else
@@ -196,14 +210,15 @@ install_custom_jdk(){
     *.zip) unzip -q "$src" -d "$dest" ;;
     *) err "不支持的压缩格式"; return 1 ;;
   esac
-  shell_rc="$HOME/.bashrc"; [[ -n "${ZSH_VERSION-}" ]] && shell_rc="$HOME/.zshrc"
+  shell_rc="$HOME/.bashrc"; [[ -n "${ZSH_VERSION:-}" ]] && shell_rc="$HOME/.zshrc"
   {
     echo ""
     echo "# mcdev custom jdk"
     echo "export JAVA_HOME=\"$dest\""
     echo 'export PATH=$JAVA_HOME/bin:$PATH'
   } >> "$shell_rc"
-  export JAVA_HOME="$dest"; export PATH="$JAVA_HOME/bin:$PATH"
+  export JAVA_HOME="$dest"
+  export PATH="$JAVA_HOME/bin:$PATH"
   ok "自定义 JDK 已安装并写入 $shell_rc"
   return 0
 }
@@ -243,7 +258,13 @@ ensure_zkm(){
   read -p "请输入 ZKM 下载 URL (回车使用默认): " zurl
   zurl=${zurl:-$ZKM_URL_DEFAULT}
   info "下载 ZKM..."
-  if wget -O "$ZKM_JAR" "$zurl"; then ok "ZKM 已下载: $ZKM_JAR"; return 0; else err "ZKM 下载失败"; return 1; fi
+  if wget -O "$ZKM_JAR" "$zurl"; then 
+    ok "ZKM 已下载: $ZKM_JAR"
+    return 0
+  else 
+    err "ZKM 下载失败"
+    return 1
+  fi
 }
 
 # -------------------------
@@ -254,14 +275,24 @@ ensure_cfr(){
   ensure_dir "$CFR_DIR"
   CFR_URL="https://www.benf.org/other/cfr/cfr-0.152.jar"
   info "下载 CFR..."
-  if wget -O "$CFR_JAR" "$CFR_URL"; then ok "CFR 已下载"; return 0; else err "CFR 下载失败"; return 1; fi
+  if wget -O "$CFR_JAR" "$CFR_URL"; then 
+    ok "CFR 已下载"
+    return 0
+  else 
+    err "CFR 下载失败"
+    return 1
+  fi
 }
 
 # -------------------------
 # Gradle wrapper / install
 # -------------------------
 ensure_gradle_wrapper(){
-  if [[ -f "./gradlew" ]]; then chmod +x ./gradlew 2>/dev/null || true; ok "gradlew 已存在"; return 0; fi
+  if [[ -f "./gradlew" ]]; then 
+    chmod +x ./gradlew 2>/dev/null || true
+    ok "gradlew 已存在"
+    return 0
+  fi
   warn "gradlew 不存在，尝试生成 wrapper..."
   if ! command -v gradle >/dev/null 2>&1; then
     warn "系统未安装 Gradle"
@@ -310,7 +341,8 @@ ensure_maven(){
   if [[ -n "$PKG_INSTALL_CMD" ]]; then
     info "尝试安装 Maven..."
     $PKG_INSTALL_CMD maven || { warn "自动安装 Maven 失败，请手动安装"; return 1; }
-    ok "Maven 安装完成"; return 0
+    ok "Maven 安装完成"
+    return 0
   fi
   warn "无法自动安装 Maven，请手动安装"
   return 1
@@ -325,7 +357,9 @@ configure_gradle_optimization(){
   if [[ -f /proc/meminfo ]]; then
     mem_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
     mem_mb=$((mem_kb/1024))
-  else mem_mb=2048; fi
+  else 
+    mem_mb=2048
+  fi
   xmx=$((mem_mb*70/100))
   (( xmx > 4096 )) && xmx=4096
   sed -i '/org.gradle.jvmargs/d' "$PROPS" 2>/dev/null || true
@@ -351,9 +385,11 @@ EOF
 clone_repo(){
   read -p "仓库 (user/repo 或 完整 URL): " repo_input
   [[ -z "$repo_input" ]] && { warn "取消"; return 1; }
-  if [[ "$repo_input" =~ ^https?:// ]]; then repo_url="$repo_input"; else
+  if [[ "$repo_input" =~ ^https?:// ]]; then 
+    repo_url="$repo_input"
+  else
     echo "是否使用镜像加速?"
-    echo "1) gh-proxy.org   2) ghproxy.com   3) hub.fastgit.xyz   4) 自定义   5) 不使用"
+    echo "1) gh-proxy.org   2) ghproxy.com   3) hub.fastgit.xyz   4)自定义   5)不使用"
     read -p "选择 [1-5]: " proxy
     case "$proxy" in
       1) base="https://gh-proxy.org/https://github.com/" ;;
@@ -368,7 +404,9 @@ clone_repo(){
   load_config
   echo "选择存放位置 (默认: $PROJECT_BASE):"
   echo "1) 本地: $PROJECTS_LOCAL"
-  if [[ "$IS_TERMUX" == "true" ]]; then echo "2) 共享: $PROJECTS_SDCARD"; fi
+  if [[ "$IS_TERMUX" == "true" ]]; then 
+    echo "2) 共享: $PROJECTS_SDCARD"
+  fi
   echo "3) 自定义路径"
   read -p "选择 [Enter=默认]: " choice
   case "$choice" in
@@ -377,11 +415,12 @@ clone_repo(){
     *) target="$PROJECTS_LOCAL" ;;
   esac
   ensure_dir "$target"
+  PROJECT_BASE="$target"
   save_config
   info "克隆到: $target"
   git clone "$repo_url" "$target/$(basename "$repo_input" .git)" || { err "git clone 失败"; return 1; }
   ok "克隆完成"
-  cd "$target/$(basename "$repo_input" .git)" || return 0
+  cd "$target/$(basename "$repo_input" .git)" || return 1
   ok "已进入 $(pwd)"
   ensure_gradle_wrapper || true
   build_menu "$PWD"
@@ -394,11 +433,21 @@ choose_existing_project(){
   load_config
   ensure_dir "$PROJECT_BASE"
   local dirs=()
-  for d in "$PROJECT_BASE"/*; do [[ -d "$d" ]] && dirs+=("$d"); done
-  if [[ ${#dirs[@]} -eq 0 ]]; then warn "未找到项目在 $PROJECT_BASE"; return 1; fi
+  for d in "$PROJECT_BASE"/*; do 
+    [[ -d "$d" ]] && dirs+=("$d")
+  done
+  if [[ ${#dirs[@]} -eq 0 ]]; then 
+    warn "未找到项目在 $PROJECT_BASE"
+    return 1
+  fi
   echo "请选择项目："
   select p in "${dirs[@]}" "取消"; do
-    if [[ "$p" == "取消" || -z "$p" ]]; then return 1; else build_menu "$p"; break; fi
+    if [[ "$p" == "取消" || -z "$p" ]]; then 
+      return 1
+    else 
+      build_menu "$p"
+      break
+    fi
   done
 }
 
@@ -407,23 +456,32 @@ choose_existing_project(){
 # -------------------------
 detect_mod_type(){
   local dir="$1"
-  if [[ -f "$dir/fabric.mod.json" ]] || grep -qi "fabric-loom" "$dir"/build.gradle* 2>/dev/null; then echo "fabric"
-  elif grep -qi "minecraftforge" "$dir"/build.gradle* 2>/dev/null || [[ -f "$dir/src/main/resources/META-INF/mods.toml" ]]; then echo "forge"
-  elif [[ -d "$dir/mcp" || -f "$dir/conf/joined.srg" || -f "$dir/setup.sh" ]]; then echo "mcp"
-  elif [[ -f "$dir/pom.xml" ]]; then echo "maven"
-  elif [[ -f "$dir/build.gradle" || -f "$dir/gradlew" ]]; then echo "gradle"
-  else echo "unknown"; fi
+  if [[ -f "$dir/fabric.mod.json" ]] || grep -qi "fabric-loom" "$dir"/build.gradle* 2>/dev/null; then 
+    echo "fabric"
+  elif grep -qi "minecraftforge" "$dir"/build.gradle* 2>/dev/null || [[ -f "$dir/src/main/resources/META-INF/mods.toml" ]]; then 
+    echo "forge"
+  elif [[ -d "$dir/mcp" || -f "$dir/conf/joined.srg" || -f "$dir/setup.sh" ]]; then 
+    echo "mcp"
+  elif [[ -f "$dir/pom.xml" ]]; then 
+    echo "maven"
+  elif [[ -f "$dir/build.gradle" || -f "$dir/gradlew" ]]; then 
+    echo "gradle"
+  else 
+    echo "unknown"
+  fi
 }
 
 detect_mc_version(){
-  local dir="$1"; local ver=""
+  local dir="$1"
+  local ver=""
   [[ -f "$dir/gradle.properties" ]] && ver=$(grep -E "minecraft_version|mc_version" "$dir/gradle.properties" 2>/dev/null | head -n1 | cut -d= -f2)
   [[ -z "$ver" && -f "$dir/fabric.mod.json" ]] && ver=$(grep -o '"minecraft": *"[^"]*"' "$dir/fabric.mod.json" | head -n1 | cut -d\" -f4)
   echo "${ver:-unknown}"
 }
 
 has_gradle_task(){
-  local dir="$1"; local task="$2"
+  local dir="$1"
+  local task="$2"
   (cd "$dir" && ./gradlew tasks --all 2>/dev/null | grep -q "$task")
 }
 
@@ -431,7 +489,9 @@ has_gradle_task(){
 # Find final jar & publish
 # -------------------------
 find_final_jar(){
-  local dir="$1"; local type="$2"; local res=""
+  local dir="$1"
+  local type="$2"
+  local res=""
   if [[ "$type" == "fabric" || "$type" == "quilt" ]]; then
     res=$(find "$dir/build" -type f \( -iname "*remapped*.jar" -o -iname "*mapped*.jar" \) 2>/dev/null | head -n1)
     [[ -z "$res" ]] && res=$(find "$dir/build" -type f -iname "*.jar" ! -iname "*dev*" ! -iname "*sources*" 2>/dev/null | head -n1)
@@ -446,7 +506,8 @@ find_final_jar(){
 }
 
 publish_release(){
-  local dir="$1"; local jar="$2"
+  local dir="$1"
+  local jar="$2"
   ensure_dir "$dir/release"
   cp -f "$jar" "$dir/release/"
   ok "已复制到: $dir/release/$(basename "$jar")"
@@ -463,14 +524,20 @@ publish_release(){
 diagnose_build_failure(){
   local log="$1"
   warn "诊断构建失败 (查看 $log) ..."
-  if grep -qi "OutOfMemoryError" "$log" 2>/dev/null; then echo "- 可能: 内存不足。建议: 增加 Gradle 堆内存，或清理缓存"; fi
-  if grep -qi "Could not resolve" "$log" 2>/dev/null; then echo "- 可能: 依赖下载失败(网络/镜像)"; fi
-  if grep -qi "Unsupported major.minor version" "$log" 2>/dev/null; then echo "- 可能: Java 版本不匹配(例如需要 Java 17)"; fi
+  if grep -qi "OutOfMemoryError" "$log" 2>/dev/null; then 
+    echo "- 可能: 内存不足。建议: 增加 Gradle 堆内存，或清理缓存"
+  fi
+  if grep -qi "Could not resolve" "$log" 2>/dev/null; then 
+    echo "- 可能: 依赖下载失败(网络/镜像)"
+  fi
+  if grep -qi "Unsupported major.minor version" "$log" 2>/dev/null; then 
+    echo "- 可能: Java 版本不匹配(例如需要 Java 17)"
+  fi
   echo "- 常用修复: ./gradlew clean --no-daemon ; ./gradlew build --stacktrace"
 }
 
 # -------------------------
-# Obfuscation: ProGuard (basic) - 修复版本
+# Obfuscation: ProGuard (basic)
 # -------------------------
 obfuscate_basic(){
   local dir="$1"
@@ -478,15 +545,8 @@ obfuscate_basic(){
   ensure_proguard || { err "ProGuard 未就绪"; return 1; }
   local out="${jar%.jar}-obf.jar"
   info "ProGuard 混淆 -> $(basename "$out")"
-  
-  # 使用引号包裹 -keep 参数，避免花括号被 shell 解释
-  if java -jar "$PROGUARD_JAR" \
-       -injars "$jar" \
-       -outjars "$out" \
-       -dontwarn \
-       -dontoptimize \
-       -dontshrink \
-       '-keep public class * { public protected *; }'; then
+  java -jar "$PROGUARD_JAR" -injars "$jar" -outjars "$out" -dontwarn -dontoptimize -dontshrink -keep public class * { public protected *; }
+  if [[ $? -eq 0 ]]; then
     ok "ProGuard 混淆成功: $(basename "$out")"
     cp -f "$out" "$(dirname "$jar")/../release/"
     return 0
@@ -497,7 +557,7 @@ obfuscate_basic(){
 }
 
 # -------------------------
-# Advanced obfuscation: string tool + anti-debug injection - 修复版本
+# Advanced obfuscation: string tool + anti-debug injection
 # -------------------------
 inject_antidebug_into_jar(){
   local target="$1"
@@ -525,34 +585,20 @@ JAVA
 obfuscate_advanced(){
   local dir="$1"
   local jar="$2"
-  
-  # 基础混淆
   obfuscate_basic "$dir" "$jar" || { err "基础混淆失败"; return 1; }
-  
   local obf="${jar%.jar}-obf.jar"
   local secure="${jar%.jar}-secure.jar"
-  
-  # 处理 stringer.jar
   if [[ -f "$STRINGER_JAR" ]]; then
     info "使用 stringer.jar 进行字符串加密..."
-    if java -jar "$STRINGER_JAR" --input "$obf" --output "$secure" --mode xor 2>&1 | sed 's/^/    /'; then
-      info "stringer 加密成功"
-    else
-      warn "stringer 失败，使用原始混淆文件"
-      cp -f "$obf" "$secure"
-    fi
+    java -jar "$STRINGER_JAR" --input "$obf" --output "$secure" --mode xor 2>&1 | sed 's/^/    /'
+    [[ $? -ne 0 ]] && warn "stringer 失败，使用 obf"
   else
     warn "未检测到 stringer.jar (放在 ~/stringer.jar 可被自动使用)"
     cp -f "$obf" "$secure"
   fi
-  
-  # 注入反调试代码
   inject_antidebug_into_jar "$secure" || warn "注入 anti-debug 失败"
-  
-  # 复制到 release 目录
   cp -f "$secure" "$(dirname "$jar")/../release/"
   ok "进阶混淆完成 -> $(basename "$secure")"
-  
   return 0
 }
 
@@ -575,7 +621,7 @@ zkm_deobf_single(){
   echo "Transformer: 1) s11 2) si11 3) rvm11 4) cf11 5) all"
   read -p "选择 (1-5, default 5): " t
   t=${t:-5}
-  case "$t" in
+  case "$t" in 
     1) trans="s11" ;;
     2) trans="si11" ;;
     3) trans="rvm11" ;;
@@ -585,9 +631,10 @@ zkm_deobf_single(){
   esac
   out="$BASE/release/deobf/$(basename "$input" .jar)-deobf.jar"
   info "运行 ZKM ($trans) -> $out"
-  if java -jar "$ZKM_JAR" --input "$input" --output "$out" --transformer "$trans" --verbose; then
+  java -jar "$ZKM_JAR" --input "$input" --output "$out" --transformer "$trans" --verbose
+  if [[ $? -eq 0 ]]; then 
     ok "ZKM 完成 -> $out"
-  else
+  else 
     err "ZKM 执行失败"
   fi
 }
@@ -599,11 +646,8 @@ batch_zkm_deobf(){
     [[ -f "$jar" ]] || continue
     out="$BASE/release/deobf/$(basename "$jar" .jar)-deobf.jar"
     info "ZKM 处理 $(basename "$jar") ..."
-    if java -jar "$ZKM_JAR" --input "$jar" --output "$out" --transformer "s11,si11,rvm11,cf11" --verbose; then
-      ok "ZKM done: $out"
-    else
-      warn "ZKM 处理失败: $jar"
-    fi
+    java -jar "$ZKM_JAR" --input "$jar" --output "$out" --transformer "s11,si11,rvm11,cf11" --verbose
+    ok "ZKM done: $out"
   done
 }
 
@@ -616,11 +660,8 @@ cfr_decompile_single(){
   [[ ! -f "$jar" ]] && { err "Jar not found: $jar"; return 1; }
   outdir="$BASE/decompile/$(basename "$jar" .jar)"
   ensure_dir "$outdir"
-  if java -jar "$CFR_JAR" "$jar" --outputdir "$outdir"; then
-    ok "反编译完成 -> $outdir"
-  else
-    err "反编译失败"
-  fi
+  java -jar "$CFR_JAR" "$jar" --outputdir "$outdir"
+  ok "反编译完成 -> $outdir"
 }
 
 # -------------------------
@@ -646,20 +687,22 @@ download_forge_mdk(){
   info "尝试获取 Forge 最新 promotion 对应 $mcver (可能需要手动确认)"
   JSON=$(curl -s https://files.minecraftforge.net/maven/net/minecraftforge/forge/promotions_slim.json 2>/dev/null)
   ver=""
-  if [[ -n "$JSON" ]]; then ver=$(echo "$JSON" | grep -o "\"$mcver-[^\"]*\"" | head -n1 | tr -d '"'); fi
-  if [[ -z "$ver" ]]; then read -p "输入 Forge 完整版本 (如 1.20.1-47.1.0) 或回车取消: " fullv; [[ -z "$fullv" ]] && { warn "取消"; return 1; }; ver="$fullv"; fi
+  if [[ -n "$JSON" ]]; then 
+    ver=$(echo "$JSON" | grep -o "\"$mcver-[^\"]*\"" | head -n1 | tr -d '"')
+  fi
+  if [[ -z "$ver" ]]; then 
+    read -p "输入 Forge 完整版本 (如 1.20.1-47.1.0) 或回车取消: " fullv
+    [[ -z "$fullv" ]] && { warn "取消"; return 1; }
+    ver="$fullv"
+  fi
   url="https://maven.minecraftforge.net/net/minecraftforge/forge/${ver}/forge-${ver}-mdk.zip"
   tmp="/tmp/forge-${ver}.zip"
-  if wget -q -O "$tmp" "$url"; then
-    dest="$PROJECTS_LOCAL/forge-$ver"
-    ensure_dir "$dest"
-    unzip -q "$tmp" -d "$dest"
-    rm -f "$tmp"
-    ok "Forge MDK 已解压到 $dest"
-  else
-    err "下载失败: $url"
-    return 1
-  fi
+  wget -q -O "$tmp" "$url" || { err "下载失败: $url"; return 1; }
+  dest="$PROJECTS_LOCAL/forge-$ver"
+  ensure_dir "$dest"
+  unzip -q "$tmp" -d "$dest"
+  rm -f "$tmp"
+  ok "Forge MDK 已解压到 $dest"
 }
 
 # -------------------------
@@ -686,29 +729,58 @@ build_menu(){
   build_log="/tmp/mcdev_build_$(date +%s).log"
   case "$opt" in
     1)
+      local rc=0
       if [[ "$modtype" == "fabric" || "$modtype" == "quilt" ]]; then
-        if has_gradle_task "$dir" "remapJar"; then run_and_log "$build_log" ./gradlew remapJar --no-daemon --stacktrace; rc=$?; else run_and_log "$build_log" ./gradlew build --no-daemon --stacktrace; rc=$?; fi
+        if has_gradle_task "$dir" "remapJar"; then 
+          run_and_log "$build_log" ./gradlew remapJar --no-daemon --stacktrace
+          rc=$?
+        else 
+          run_and_log "$build_log" ./gradlew build --no-daemon --stacktrace
+          rc=$?
+        fi
       elif [[ "$modtype" == "forge" ]]; then
-        run_and_log "$build_log" ./gradlew build --no-daemon --stacktrace; rc=$?; if has_gradle_task "$dir" "reobfJar"; then run_and_log "$build_log" ./gradlew reobfJar --no-daemon --stacktrace; fi
-      elif [[ "$modtype" == "maven" ]]; then run_and_log "$build_log" mvn package; rc=$?; else run_and_log "$build_log" ./gradlew build --no-daemon --stacktrace; rc=$?; fi
+        run_and_log "$build_log" ./gradlew build --no-daemon --stacktrace
+        rc=$?
+        if has_gradle_task "$dir" "reobfJar"; then 
+          run_and_log "$build_log" ./gradlew reobfJar --no-daemon --stacktrace
+        fi
+      elif [[ "$modtype" == "maven" ]]; then 
+        run_and_log "$build_log" mvn package
+        rc=$?
+      else 
+        run_and_log "$build_log" ./gradlew build --no-daemon --stacktrace
+        rc=$?
+      fi
 
-      if [[ $rc -ne 0 ]]; then err "构建失败, 日志: $build_log"; diagnose_build_failure "$build_log"; return 1; fi
+      if [[ $rc -ne 0 ]]; then 
+        err "构建失败, 日志: $build_log"
+        diagnose_build_failure "$build_log"
+        return 1
+      fi
       finaljar=$(find_final_jar "$dir" "$modtype")
-      if [[ -n "$finaljar" ]]; then publish_release "$dir" "$finaljar"; else warn "未找到 final jar"; fi
+      if [[ -n "$finaljar" ]]; then 
+        publish_release "$dir" "$finaljar"
+      else 
+        warn "未找到 final jar"
+      fi
       ;;
     2) run_and_log "$build_log" ./gradlew clean ; ok "Clean 完成" ;;
     3) run_and_log "$build_log" ./gradlew dependencies --no-daemon ; ok "依赖下载完成" ;;
     4) ensure_gradle_wrapper ;;
     5)
       run_and_log "$build_log" ./gradlew build --no-daemon --stacktrace
-      rc=$?
-      if [[ $rc -ne 0 ]]; then err "构建失败"; diagnose_build_failure "$build_log"; return 1; fi
+      local rc=$?
+      if [[ $rc -ne 0 ]]; then 
+        err "构建失败"
+        diagnose_build_failure "$build_log"
+        return 1
+      fi
       finaljar=$(find_final_jar "$dir" "$modtype")
       [[ -z "$finaljar" ]] && { err "未找到 Jar"; return 1; }
       publish_release "$dir" "$finaljar"
       echo "混淆选项: 1) ProGuard 2) 进阶 3) Secure 4) 不混淆"
       read -p "选择: " mix
-      case "$mix" in
+      case "$mix" in 
         1) obfuscate_basic "$dir" "$finaljar" ;;
         2) obfuscate_advanced "$dir" "$finaljar" ;;
         3) secure_pipeline "$dir" "$finaljar" ;;
@@ -726,12 +798,16 @@ batch_build_all(){
   load_config
   ensure_dir "$PROJECT_BASE"
   ok "开始批量构建 $PROJECT_BASE 下的项目..."
-  success_list=()
-  fail_list=()
+  local success_list=()
+  local fail_list=()
   for d in "$PROJECT_BASE"/*; do
     [[ -d "$d" ]] || continue
     info "构建: $(basename "$d")"
-    build_menu "$d" || { warn "项目 $(basename "$d") 失败"; fail_list+=("$(basename "$d")"); continue; }
+    build_menu "$d" || { 
+      warn "项目 $(basename "$d") 失败"
+      fail_list+=("$(basename "$d")")
+      continue
+    }
     success_list+=("$(basename "$d")")
   done
   echo "批量构建完成. 成功: ${success_list[*]}  失败: ${fail_list[*]}"
@@ -749,12 +825,12 @@ full_pipeline_project(){
   finaljar=$(find_final_jar "$dir" "$(detect_mod_type "$dir")")
   [[ -z "$finaljar" ]] && { err "找不到 final jar"; return 1; }
   obfuscate_advanced "$dir" "$finaljar" || warn "进阶混淆失败"
-  obfjar="${finaljar%.jar}-secure.jar"
+  local obfjar="${finaljar%.jar}-secure.jar"
   [[ ! -f "$obfjar" ]] && obfjar="${finaljar%.jar}-obf.jar"
   if [[ -f "$obfjar" ]]; then 
     publish_release "$dir" "$obfjar"
     ensure_zkm && zkm_deobf_single "$obfjar" || warn "ZKM 步骤失败"
-    deobfpath="$BASE/release/deobf/$(basename "$obfjar" .jar)-deobf.jar"
+    local deobfpath="$BASE/release/deobf/$(basename "$obfjar" .jar)-deobf.jar"
     [[ -f "$deobfpath" ]] && ensure_cfr && cfr_decompile_single "$deobfpath"
   fi
   ok "全流程完成: $dir"
@@ -818,16 +894,29 @@ main_menu(){
       10) ensure_zkm ;;
       11) choose_existing_project ;;  # enters build_menu
       12) batch_build_all ;;
-      13) read -p "项目路径 (留空选择项目): " p
-         if [[ -z "$p" ]]; then choose_existing_project; else full_pipeline_project "$p"; fi ;;
+      13) 
+        read -p "项目路径 (留空选择项目): " p
+        if [[ -z "$p" ]]; then 
+          choose_existing_project
+        else 
+          full_pipeline_project "$p"
+        fi 
+        ;;
       14) batch_zkm_deobf ;;
-      15) read -p "deobf jar 路径 (回车自动): " j
-         j=${j:-$(ls "$BASE"/release/deobf/*.jar 2>/dev/null | head -n1)}
-         [[ -n "$j" ]] && cfr_decompile_single "$j" || warn "未找到 jar" ;;
+      15) 
+        read -p "deobf jar 路径 (回车自动): " j
+        j=${j:-$(ls "$BASE"/release/deobf/*.jar 2>/dev/null | head -n1)}
+        [[ -n "$j" ]] && cfr_decompile_single "$j" || warn "未找到 jar"
+        ;;
       16) clear_gradle_cache ;;
-      17) echo "当前 PROJECT_BASE=$PROJECT_BASE"
-         read -p "输入新 PROJECT_BASE (回车保持): " newp
-         [[ -n "$newp" ]] && { PROJECT_BASE="$newp"; save_config; } ;;
+      17) 
+        echo "当前 PROJECT_BASE=$PROJECT_BASE"
+        read -p "输入新 PROJECT_BASE (回车保持): " newp
+        [[ -n "$newp" ]] && { 
+          PROJECT_BASE="$newp"
+          save_config
+        }
+        ;;
       0) info "退出"; exit 0 ;;
       *) warn "无效选项" ;;
     esac
