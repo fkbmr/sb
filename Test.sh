@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# mcdev_final.sh
-# Ultimate single-file Minecraft Mod pipeline (Termux-friendly)
-#  - Full integration: JDK (custom + auto download), Gradle wrapper, Gradle ZIP import,
-#    Maven, Gradle optimization, Git clone with proxy, Fabric/Forge/MCP detection,
-#    remap/reobf handling, release publishing, ProGuard, advanced obf, ZKM, CFR,
-#    Fabric/Forge MDK download, batch build, full pipeline.
-#
-# Usage:
-#   chmod +x mcdev_final.sh
-#   ./mcdev_final.sh
-#
-# IMPORTANT: Use third-party deobfuscation tools (ZKM) only for legal/ethical purposes.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -42,12 +30,22 @@ CONFIG_FILE="$HOME/.mcdev_env.conf"
 GRADLE_USER_HOME="$HOME/.gradle"
 SDCARD_DOWNLOAD="/sdcard/Download"
 ARCH=$(uname -m)
-
 IS_TERMUX=false
-PKG_INSTALL_CMD=""
 
-# Determine environment & package manager
-PKG_INSTALL_CMD="apt install "
+ensure_pkg_cmd() {
+    local pkg_cmd=""
+    # 精准判断Termux Proot-Debian：Termux主目录存在 + proot进程运行
+    if [ -d "/data/data/com.termux/files/home" ] && ps -ef | grep -q [p]root; then
+        pkg_cmd="apt update && apt install -y"
+    elif command -v apt &>/dev/null; then
+        pkg_cmd="sudo apt update && sudo apt install -y"
+    else
+        echo "错误：仅支持Debian/Ubuntu"
+        exit 1
+    fi
+    echo "$pkg_cmd"
+}
+PKG_INSTALL_CMD=$(ensure_pkg_cmd)
 
 # -------------------------
 # Utility
@@ -96,18 +94,33 @@ check_storage_and_hint(){
 # -------------------------
 # Ensure basic CLI tools
 # -------------------------
-ensure_basic_tools(){
-  local need=(git wget curl unzip zip tar sed awk javac)
-  local miss=()
-  
-  for t in "${need[@]}"; do
-    ! command -v "${t##*/}" >/dev/null 2>&1 && miss+=("$t")
-  done
-  
-  [[ ${#miss[@]} -gt 0 ]] && {
-    warn "安装缺失工具: ${miss[*]}"
-    $PKG_INSTALL_CMD "${miss[@]}" || warn "安装失败"
-  }
+ensure_basic_tools() {
+    if [ -z "$PKG_INSTALL_CMD" ]; then
+        echo "错误：未获取到有效的包安装命令"
+        return 1
+    fi
+
+    echo -e "\n开始安装基础工具..."
+    bash -c "$PKG_INSTALL_CMD git wget curl unzip zip tar sed gawk"
+
+    if [ $? -eq 0 ]; then
+        echo -e "\n基础工具安装命令执行完成"
+    else
+        echo -e "\n基础工具安装失败，请检查网络/包名是否正确"
+        return 1
+    fi
+}
+
+check_installed_tools() {
+    local tools=("git" "wget" "curl" "unzip" "sed" "awk")
+    echo -e "\n===== 安装结果验证 ====="
+    for tool in "${tools[@]}"; do
+        if command -v "$tool" &>/dev/null; then
+            echo "✅ $tool 已安装"
+        else
+            echo "❌ $tool 未安装"
+        fi
+    done
 }
 
 # -------------------------
