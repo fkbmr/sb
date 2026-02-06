@@ -1,57 +1,94 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 IFS=$'\n\t'
 
 # -------------------------
-# Colors & helpers
+# Basic helpers / cleanup
 # -------------------------
+trap 'rc=$?; [[ -n "${_TMPDIR:-}" ]] && rm -rf "${_TMPDIR}" 2>/dev/null || true; exit $rc' EXIT
+
+_TMPDIR=$(mktemp -d -t mcdev.XXXXXX)
+export TMPDIR="${TMPDIR:-$_TMPDIR}"
+
+# Colors
 RED="\033[1;31m"; GREEN="\033[1;32m"; YELLOW="\033[1;33m"; BLUE="\033[1;34m"; CYAN="\033[1;36m"; RESET="\033[0m"
 info(){ echo -e "${BLUE}[INFO]${RESET} $*"; }
 ok(){ echo -e "${GREEN}[OK]${RESET} $*"; }
 warn(){ echo -e "${YELLOW}[WARN]${RESET} $*"; }
-err(){ echo -e "${RED}[ERR]${RESET} $*"; }
+err(){ echo -e "${RED}[ERR]${RESET} $*" >&2; }
 
 # -------------------------
 # Paths & globals
 # -------------------------
-BASE="$HOME/modpipeline"
-PROJECTS_LOCAL="$HOME/projects"
-PROJECTS_SDCARD="$HOME/storage/shared/Projects"   # Termux shared path
-TOOLS_DIR="$BASE/tools"
+BASE="${BASE:-$HOME/modpipeline}"
+PROJECTS_LOCAL="${PROJECTS_LOCAL:-$HOME/projects}"
+PROJECTS_SDCARD="${PROJECTS_SDCARD:-$HOME/storage/shared/Projects}"   # Termux shared path
+TOOLS_DIR="${TOOLS_DIR:-$BASE/tools}"
 PROGUARD_DIR="$TOOLS_DIR/proguard"
 PROGUARD_JAR="$PROGUARD_DIR/proguard.jar"
 ZKM_DIR="$TOOLS_DIR/zelixkiller"
 ZKM_JAR="$ZKM_DIR/zkm.jar"
 CFR_DIR="$TOOLS_DIR/cfr"
 CFR_JAR="$CFR_DIR/cfr.jar"
-STRINGER_JAR="$HOME/stringer.jar"   # optional external string obfuscator
-CONFIG_FILE="$HOME/.mcdev_env.conf"
-GRADLE_USER_HOME="$HOME/.gradle"
-SDCARD_DOWNLOAD="/sdcard/Download"
-ARCH=$(uname -m)
-IS_TERMUX=false
+STRINGER_JAR="${STRINGER_JAR:-$HOME/stringer.jar}"   # optional external string obfuscator
+CONFIG_FILE="${CONFIG_FILE:-$HOME/.mcdev_env.conf}"
+GRADLE_USER_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}"
+SDCARD_DOWNLOAD="${SDCARD_DOWNLOAD:-/sdcard/Download}"
+ARCH="$(uname -m)"
+IS_TERMUX="false"
 
-ensure_pkg_cmd() {
-    local pkg_cmd=""
-    # 精准判断Termux Proot-Debian：Termux主目录存在 + proot进程运行
-    if [ -d "/data/data/com.termux/files/home" ] && ps -ef | grep -q [p]root; then
-        pkg_cmd="apt update && apt install -y"
-    elif command -v apt &>/dev/null; then
-        pkg_cmd="sudo apt update && sudo apt install -y"
-    else
-        echo "错误：仅支持Debian/Ubuntu"
-        exit 1
-    fi
-    echo "$pkg_cmd"
+# -------------------------
+# Environment detection
+# -------------------------
+detect_termux() {
+  # TERMUX_VERSION env exists in Termux; prefix path check as fallback
+  if [[ -n "${TERMUX_VERSION-}" || "${PREFIX-}" =~ /com.termux/ || -d "/data/data/com.termux" ]]; then
+    IS_TERMUX="true"
+    ok "Termux 环境检测通过"
+  else
+    IS_TERMUX="false"
+  fi
 }
-PKG_INSTALL_CMD=$(ensure_pkg_cmd)
+detect_termux
+
+# -------------------------
+# Package installer helper
+# -------------------------
+ensure_pkg_cmd() {
+  # Return empty string if cannot detect, else return command prefix that expects package names appended
+  if [[ "$IS_TERMUX" == "true" ]]; then
+    # Termux: apt is used but without sudo
+    echo "apt update && apt install -y"
+    return 0
+  fi
+  if command -v apt >/dev/null 2>&1; then
+    # Use sudo if available (most linux desktop/server)
+    if command -v sudo >/dev/null 2>&1; then
+      echo "sudo apt update && sudo apt install -y"
+    else
+      echo "sudo apt update && sudo apt install -y"  # we still return sudo; caller can run without sudo (will error)
+    fi
+    return 0
+  fi
+  # try yum/dnf fallback
+  if command -v dnf >/dev/null 2>&1; then
+    echo "sudo dnf install -y"
+    return 0
+  elif command -v yum >/dev/null 2>&1; then
+    echo "sudo yum install -y"
+    return 0
+  fi
+  # unknown package manager
+  echo ""
+  return 1
+}
+PKG_INSTALL_CMD="$(ensure_pkg_cmd || true)"
 
 # -------------------------
 # Utility
 # -------------------------
 ensure_dir(){ mkdir -p "$1"; }
-run_and_log(){ local log="$1"; shift; "$@" 2>&1 | tee "$log"; return "${PIPESTATUS[0]}"; }
+run_and_log(){ local log="$1"; shift; set +e; "$@" 2>&1 | tee "$log"; rc=${PIPESTATUS[0]}; set -e; return $rc; }
 
 # -------------------------
 # Config load/save
@@ -80,10 +117,14 @@ check_storage_and_hint(){
   if [[ "$IS_TERMUX" == "true" ]]; then
     if [[ ! -d "$HOME/storage/shared" && ! -d "/sdcard" ]]; then
       warn "Termux 未挂载共享存储 (~/storage/shared 或 /sdcard)。"
-      read -p "现在运行 termux-setup-storage 授权？(y/N): " yn
+      read -r -p "现在运行 termux-setup-storage 授权？(y/N): " yn
       if [[ "$yn" =~ ^[Yy]$ ]]; then
-        termux-setup-storage
-        sleep 2
+        if command -v termux-setup-storage >/dev/null 2>&1; then
+          termux-setup-storage || warn "termux-setup-storage 执行失败"
+          sleep 2
+        else
+          warn "未找到 termux-setup-storage 命令"
+        fi
       else
         warn "将使用本地目录作为 fallback。"
       fi
@@ -95,20 +136,32 @@ check_storage_and_hint(){
 # Ensure basic CLI tools
 # -------------------------
 ensure_basic_tools() {
-    if [ -z "$PKG_INSTALL_CMD" ]; then
-        echo "错误：未获取到有效的包安装命令"
+    if [[ -z "$PKG_INSTALL_CMD" ]]; then
+        warn "未检测到支持的包管理命令，请手动安装：git wget curl unzip zip tar sed awk"
         return 1
     fi
 
-    echo -e "\n开始安装基础工具..."
-    bash -c "$PKG_INSTALL_CMD git wget curl unzip zip tar sed gawk"
+    echo -e "\n开始检查基础工具..."
+    local need=()
+    for t in git wget curl unzip zip tar sed awk grep javac java; do
+      if ! command -v "$t" &>/dev/null; then need+=("$t"); fi
+    done
 
-    if [ $? -eq 0 ]; then
-        echo -e "\n基础工具安装命令执行完成"
+    if [[ ${#need[@]} -eq 0 ]]; then
+      ok "基础工具已齐全"
+      return 0
+    fi
+
+    echo "将尝试安装: ${need[*]}"
+    # build install command (PKG_INSTALL_CMD may contain 'update && install -y' or similar)
+    # If PKG_INSTALL_CMD contains '&&', execute as whole string with packages appended
+    if [[ "$PKG_INSTALL_CMD" == *"&&"* ]]; then
+      # split prefix before 'install' and append packages to the install command
+      bash -c "$PKG_INSTALL_CMD ${need[*]}" || { warn "自动安装部分工具失败，请手动安装: ${need[*]}"; return 1; }
     else
-        echo -e "\n基础工具安装失败，请检查网络/包名是否正确"
-        return 1
+      bash -c "$PKG_INSTALL_CMD ${need[*]}" || { warn "自动安装部分工具失败，请手动安装: ${need[*]}"; return 1; }
     fi
+    ok "尝试安装完成"
 }
 
 check_installed_tools() {
@@ -129,18 +182,18 @@ check_installed_tools() {
 auto_install_jdk(){
   if command -v java >/dev/null 2>&1; then
     info "检测到 Java: $(java -version 2>&1 | head -n1)"
-    read -p "保留现有 Java？(y/N): " keep
+    read -r -p "保留现有 Java？(y/N): " keep
     [[ "$keep" =~ ^[Yy]$ ]] && return 0
   fi
 
   echo "请选择 JDK 版本：1)8  2)17(推荐)  3)21  4) 自定义 URL/本地包  5) 取消"
-  read -p "选择 [1-5]: " c
+  read -r -p "选择 [1-5]: " c
   case "$c" in
     1) ver=8 ;;
     2) ver=17 ;;
     3) ver=21 ;;
     4)
-      read -p "输入 JDK 下载 URL 或 本地路径 (tar.gz/zip): " src
+      read -r -p "输入 JDK 下载 URL 或 本地路径 (tar.gz/zip): " src
       install_custom_jdk "$src"
       return $?
       ;;
@@ -155,37 +208,47 @@ auto_install_jdk(){
   
   dest="$HOME/jdk-$ver"
   ensure_dir "$dest"
-  api_url="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/${ver}/jdk/${arch_dl}/linux/OpenJDK${ver}U-jdk_${arch_dl}_linux_hotspot_21.0.10_7.tar.gz"
-  info "将通过 Adoptium API 下载 JDK $ver ..."
-  tmp="/tmp/jdk${ver}.tar.gz"
-  if wget -O "$tmp" "$api_url"; then
-    info "下载完成，正在解压..."
-    tar -xzf "$tmp" -C "$dest" --strip-components=1 || { err "解压失败"; return 1; }
-    rm -f "$tmp"
-    shell_rc="$HOME/.bashrc"; [[ -n "${ZSH_VERSION-}" ]] && shell_rc="$HOME/.zshrc"
-    if ! grep -q "mcdev jdk $ver" "$shell_rc" 2>/dev/null; then
-      {
-        echo ""
-        echo "# mcdev jdk $ver"
-        echo "export JAVA_HOME=\"$dest\""
-        echo 'export PATH=$JAVA_HOME/bin:$PATH'
-      } >> "$shell_rc"
-      ok "已写入 $shell_rc（重新打开 shell 或 source 生效）"
-    fi
-    export JAVA_HOME="$dest"; export PATH="$JAVA_HOME/bin:$PATH"
-    ok "JDK $ver 安装完成"
-    return 0
-  else
-    err "JDK 下载失败 (URL: $api_url)"
-    return 1
+
+  # NOTE: the exact upstream filenames change; prefer Adoptium latest tarball mirror pattern may differ.
+  api_url="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/"
+
+  info "尝试通过 Adoptium 镜像下载 JDK $ver (若失败请选择自定义 URL)"
+  tmp="$TMPDIR/jdk${ver}.tar.gz"
+  # Use a conservative URL — user may need to supply custom URL if this fails
+  # Attempt common binary name (may fail on some versions)
+  dl_url="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/latest/jdk-${ver}u?os=linux&arch=${arch_dl}&type=jdk"
+  if ! wget -O "$tmp" "$dl_url" 2>/dev/null; then
+    warn "默认下载失败，请选择自定义 URL"
+    read -r -p "输入 JDK 下载 URL 或 本地路径 (tar.gz/zip) 或回车取消: " src
+    [[ -z "$src" ]] && { warn "取消"; return 1; }
+    install_custom_jdk "$src"
+    return $?
   fi
+
+  info "下载完成，正在解压..."
+  tar -xzf "$tmp" -C "$dest" --strip-components=1 || { err "解压失败"; return 1; }
+  rm -f "$tmp"
+
+  shell_rc="$HOME/.bashrc"; [[ -n "${ZSH_VERSION-}" ]] && shell_rc="$HOME/.zshrc"
+  if ! grep -q "mcdev jdk $ver" "$shell_rc" 2>/dev/null; then
+    {
+      echo ""
+      echo "# mcdev jdk $ver"
+      echo "export JAVA_HOME=\"$dest\""
+      echo 'export PATH=$JAVA_HOME/bin:$PATH'
+    } >> "$shell_rc"
+    ok "已写入 $shell_rc（重新打开 shell 或 source 生效）"
+  fi
+  export JAVA_HOME="$dest"; export PATH="$JAVA_HOME/bin:$PATH"
+  ok "JDK $ver 安装完成"
+  return 0
 }
 
 install_custom_jdk(){
   local src="$1"
   if [[ -z "$src" ]]; then err "未提供 URL/路径"; return 1; fi
   if [[ "$src" =~ ^https?:// ]]; then
-    tmp="/tmp/custom_jdk_$(date +%s).tar.gz"
+    tmp="$TMPDIR/custom_jdk_$(date +%s).tar.gz"
     info "下载自定义 JDK..."
     if ! wget -O "$tmp" "$src"; then err "下载失败"; return 1; fi
     src="$tmp"
@@ -223,27 +286,28 @@ ensure_proguard(){
   PG_URL="https://github.com/Guardsquare/proguard/releases/download/v${PG_VER}/${PG_TGZ}"
   tmp="$PROGUARD_DIR/$PG_TGZ"
   if wget -O "$tmp" "$PG_URL"; then
-    tar -xzf "$tmp" -C "$PROGUARD_DIR" --strip-components=1
+    tar -xzf "$tmp" -C "$PROGUARD_DIR" --strip-components=1 || { err "ProGuard 解压失败"; return 1; }
     if [[ -f "$PROGUARD_DIR/lib/proguard.jar" ]]; then
-      mv "$PROGUARD_DIR/lib/proguard.jar" "$PROGUARD_JAR"
-      rm -rf "$PROGUARD_DIR/lib" "$PROGUARD_DIR/bin" "$PROGUARD_DIR/docs"
-      rm -f "$tmp"
+      mv "$PROGUARD_DIR/lib/proguard.jar" "$PROGUARD_JAR" || cp -f "$PROGUARD_DIR/lib/proguard.jar" "$PROGUARD_JAR"
+      # keep the proguard dir tidy
+      rm -rf "$PROGUARD_DIR/lib" "$PROGUARD_DIR/bin" "$PROGUARD_DIR/docs" 2>/dev/null || true
+      rm -f "$tmp" 2>/dev/null || true
       ok "ProGuard 已下载: $PROGUARD_JAR"
       return 0
     fi
   fi
-  err "ProGuard 下载或解压失败"
+  err "ProGuard 下载或解压失败: $PG_URL"
   return 1
 }
 
 # -------------------------
-# ZKM (ZelixKiller) auto-download (user-provided URL default)
+# ZKM (ZelixKiller) auto-download
 # -------------------------
 ensure_zkm(){
   if [[ -f "$ZKM_JAR" ]]; then ok "ZKM 就绪"; return 0; fi
   ensure_dir "$ZKM_DIR"
   ZKM_URL_DEFAULT="https://raw.githubusercontent.com/fkbmr/sb/main/zkm.jar"
-  read -p "请输入 ZKM 下载 URL (回车使用默认): " zurl
+  read -r -p "请输入 ZKM 下载 URL (回车使用默认): " zurl
   zurl=${zurl:-$ZKM_URL_DEFAULT}
   info "下载 ZKM..."
   if wget -O "$ZKM_JAR" "$zurl"; then ok "ZKM 已下载: $ZKM_JAR"; return 0; else err "ZKM 下载失败"; return 1; fi
@@ -269,24 +333,26 @@ ensure_gradle_wrapper(){
   if ! command -v gradle >/dev/null 2>&1; then
     warn "系统未安装 Gradle"
     if [[ -n "$PKG_INSTALL_CMD" ]]; then
-      $PKG_INSTALL_CMD gradle || warn "自动安装 gradle 失败"
+      # Try install; may fail
+      bash -c "$PKG_INSTALL_CMD gradle" || warn "自动安装 gradle 失败"
     fi
   fi
   if command -v gradle >/dev/null 2>&1; then
     gradle wrapper || { err "gradle wrapper 生成失败"; return 1; }
-    chmod +x ./gradlew
+    chmod +x ./gradlew 2>/dev/null || true
     ok "Gradle wrapper 生成完成"
     return 0
   fi
+  warn "无法生成 gradle wrapper（请手动安装 gradle 或提供 gradlew）"
   return 1
 }
 
 install_gradle_from_zip(){
-  read -p "请输入 Gradle ZIP 本地路径或下载 URL: " zippath
+  read -r -p "请输入 Gradle ZIP 本地路径或下载 URL: " zippath
   [[ -z "$zippath" ]] && { warn "取消"; return 1; }
   zippath="${zippath/#\~/$HOME}"
   if [[ "$zippath" =~ ^https?:// ]]; then
-    tmp="/tmp/gradle_$(date +%s).zip"
+    tmp="$TMPDIR/gradle_$(date +%s).zip"
     info "下载 Gradle ZIP..."
     wget -O "$tmp" "$zippath" || { err "下载失败"; return 1; }
     zippath="$tmp"
@@ -295,9 +361,16 @@ install_gradle_from_zip(){
   if [[ -w /opt ]]; then dest="/opt/gradle"; else dest="$HOME/.local/gradle"; fi
   ensure_dir "$dest"
   unzip -q -o "$zippath" -d "$dest"
-  folder=$(ls "$dest" | head -n1)
+  folder=$(ls -1 "$dest" | head -n1 || true)
   if [[ -x "$dest/$folder/bin/gradle" ]]; then
-    ln -sf "$dest/$folder/bin/gradle" /usr/local/bin/gradle 2>/dev/null || ln -sf "$dest/$folder/bin/gradle" "$HOME/.local/bin/gradle"
+    # Prefer ~/.local/bin if cannot write /usr/local/bin
+    if [[ -w /usr/local/bin ]]; then
+      ln -sf "$dest/$folder/bin/gradle" /usr/local/bin/gradle 2>/dev/null || true
+    else
+      ensure_dir "$HOME/.local/bin"
+      ln -sf "$dest/$folder/bin/gradle" "$HOME/.local/bin/gradle"
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
     ok "Gradle 已安装到 $dest/$folder"
     return 0
   fi
@@ -312,7 +385,7 @@ ensure_maven(){
   if command -v mvn >/dev/null 2>&1; then ok "Maven 已安装"; return 0; fi
   if [[ -n "$PKG_INSTALL_CMD" ]]; then
     info "尝试安装 Maven..."
-    $PKG_INSTALL_CMD maven || { warn "自动安装 Maven 失败，请手动安装"; return 1; }
+    bash -c "$PKG_INSTALL_CMD maven" || { warn "自动安装 Maven 失败，请手动安装"; return 1; }
     ok "Maven 安装完成"; return 0
   fi
   warn "无法自动安装 Maven，请手动安装"
@@ -331,6 +404,9 @@ configure_gradle_optimization(){
   else mem_mb=2048; fi
   xmx=$((mem_mb*70/100))
   (( xmx > 4096 )) && xmx=4096
+  # ensure file exists
+  touch "$PROPS"
+  # remove old lines and append
   sed -i '/org.gradle.jvmargs/d' "$PROPS" 2>/dev/null || true
   echo "org.gradle.jvmargs=-Xmx${xmx}m -Dfile.encoding=UTF-8" >> "$PROPS"
   ok "写入 $PROPS (-Xmx ${xmx}m)"
@@ -352,27 +428,22 @@ EOF
 # Git clone (proxy options) and place selection
 # -------------------------
 clone_repo(){
-  read -p "仓库 (user/repo 或 完整 URL): " repo_input
+  read -r -p "仓库 (user/repo 或 完整 URL): " repo_input
   [[ -z "$repo_input" ]] && { warn "取消"; return 1; }
-  
-  # 验证输入格式
-  if [[ ! "$repo_input" =~ ^https?:// ]] && [[ ! "$repo_input" =~ ^[^/]+/[^/]+$ ]]; then
-    err "格式错误，应为 user/repo 或完整URL"
-    return 1
-  fi
   
   if [[ "$repo_input" =~ ^https?:// ]]; then 
     repo_url="$repo_input"
   else
     echo "是否使用镜像加速?"
     echo "1) gh-proxy.org   2) ghproxy.com   3) hub.fastgit.xyz   4) 自定义   5) 不使用"
-    read -p "选择 [1-5]: " proxy
+    read -r -p "选择 [1-5]: " proxy
     case "$proxy" in
       1) base="https://gh-proxy.org/https://github.com/" ;;
       2) base="https://ghproxy.com/https://github.com/" ;;
-      3) base="https://hub.fastgit.xyz/" ;;  # 修正镜像URL
-      4) read -p "输入镜像前缀 (例如 https://myproxy/): " custom
-         [[ "$custom" != */ ]] && custom="${custom}/"  # 确保有斜杠
+      3) base="https://hub.fastgit.xyz/" ;;
+      4) read -r -p "输入镜像前缀 (例如 https://myproxy/): " custom
+         [[ -n "$custom" ]] || { warn "自定义为空，使用默认"; custom=""; }
+         [[ "$custom" != */ && -n "$custom" ]] && custom="${custom}/"
          base="${custom}https://github.com/" ;;
       *) base="https://github.com/" ;;
     esac
@@ -381,45 +452,40 @@ clone_repo(){
 
   load_config
   
-  # 设置默认路径
   local default_target="${PROJECT_BASE:-$PROJECTS_LOCAL}"
   [[ -z "$default_target" ]] && default_target="$HOME/projects"
   
   echo "选择存放位置 (默认: $default_target):"
   echo "1) 本地: $PROJECTS_LOCAL"
-  if [[ "$IS_TERMUX" == "true" ]] && [[ -n "$PROJECTS_SDCARD" ]]; then 
+  if [[ "$IS_TERMUX" == "true" && -n "$PROJECTS_SDCARD" ]]; then 
     echo "2) 共享: $PROJECTS_SDCARD"
   fi
   echo "3) 自定义路径"
-  read -p "选择 [Enter=默认]: " choice
+  read -r -p "选择 [Enter=默认]: " choice
   
   case "$choice" in
     2) target="${PROJECTS_SDCARD:-$default_target}" ;;
-    3) read -p "输入目标路径: " customp
+    3) read -r -p "输入目标路径: " customp
        target="${customp:-$default_target}" ;;
     *) target="${PROJECTS_LOCAL:-$default_target}" ;;
   esac
   
-  # 确保路径存在且可写
   ensure_dir "$target" || { err "无法创建目录: $target"; return 1; }
-  
   save_config
   
-  # 提取仓库名
-  local repo_name=$(basename "$repo_input" .git)
+  local repo_name
+  repo_name=$(basename "$repo_input" .git)
   local target_path="$target/$repo_name"
   
   info "克隆到: $target_path"
   
-  # 检查是否已存在
   if [[ -d "$target_path" ]]; then
     warn "目录已存在: $target_path"
-    read -p "是否删除并重新克隆? (y/N): " confirm
-    [[ "$confirm" =~ ^[Yy]$ ]] && rm -rf "$target_path" || { info "跳过克隆"; return 0; }
+    read -r -p "是否删除并重新克隆? (y/N): " confirm
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then rm -rf "$target_path"; else info "跳过克隆"; return 0; fi
   fi
   
   git clone "$repo_url" "$target_path" || { err "git clone 失败"; return 1; }
-  
   ok "克隆完成"
   
   if cd "$target_path" 2>/dev/null; then
@@ -515,7 +581,7 @@ diagnose_build_failure(){
 }
 
 # -------------------------
-# Obfuscation: ProGuard (basic) - 修复版本
+# Obfuscation: ProGuard (basic)
 # -------------------------
 obfuscate_basic(){
   local dir="$1"
@@ -523,17 +589,18 @@ obfuscate_basic(){
   ensure_proguard || { err "ProGuard 未就绪"; return 1; }
   local out="${jar%.jar}-obf.jar"
   info "ProGuard 混淆 -> $(basename "$out")"
-  
-  # 使用引号包裹 -keep 参数，避免花括号被 shell 解释
-  if java -jar "$PROGUARD_JAR" \
-       -injars "$jar" \
-       -outjars "$out" \
-       -dontwarn \
-       -dontoptimize \
-       -dontshrink \
-       '-keep public class * { public protected *; }'; then
+  # 使用一个临时 proguard config，避免命令行参数被 shell 错误解析
+  local cfg="$TMPDIR/proguard.cfg"
+  cat > "$cfg" <<'EOF'
+-dontwarn
+-dontoptimize
+-dontshrink
+-keep public class * { public protected *; }
+EOF
+  if java -jar "$PROGUARD_JAR" -injars "$jar" -outjars "$out" @"$cfg"; then
     ok "ProGuard 混淆成功: $(basename "$out")"
-    cp -f "$out" "$(dirname "$jar")/../release/"
+    ensure_dir "$(dirname "$jar")/../release"
+    cp -f "$out" "$(dirname "$jar")/../release/" || true
     return 0
   else
     err "ProGuard 混淆失败"
@@ -542,12 +609,12 @@ obfuscate_basic(){
 }
 
 # -------------------------
-# Advanced obfuscation: string tool + anti-debug injection - 修复版本
+# Advanced obfuscation & anti-debug
 # -------------------------
 inject_antidebug_into_jar(){
   local target="$1"
   local tmpd
-  tmpd=$(mktemp -d)
+  tmpd=$(mktemp -d -p "$TMPDIR" antidebug.XXXX)
   cat > "$tmpd/AntiDebug.java" <<'JAVA'
 public class AntiDebug {
   static {
@@ -560,7 +627,8 @@ public class AntiDebug {
   public static void init() {}
 }
 JAVA
-  (cd "$tmpd" && javac AntiDebug.java 2>/dev/null) || { warn "javac 不可用，跳过注入"; rm -rf "$tmpd"; return 1; }
+  if ! command -v javac >/dev/null 2>&1; then warn "javac 不可用，跳过注入"; rm -rf "$tmpd"; return 1; fi
+  (cd "$tmpd" && javac AntiDebug.java) || { warn "javac 编译失败，跳过注入"; rm -rf "$tmpd"; return 1; }
   (cd "$tmpd" && jar uf "$target" AntiDebug.class) 2>/dev/null || { warn "jar 更新失败，跳过"; rm -rf "$tmpd"; return 1; }
   rm -rf "$tmpd"
   ok "已向 $target 注入 AntiDebug"
@@ -571,13 +639,11 @@ obfuscate_advanced(){
   local dir="$1"
   local jar="$2"
   
-  # 基础混淆
   obfuscate_basic "$dir" "$jar" || { err "基础混淆失败"; return 1; }
   
   local obf="${jar%.jar}-obf.jar"
   local secure="${jar%.jar}-secure.jar"
   
-  # 处理 stringer.jar
   if [[ -f "$STRINGER_JAR" ]]; then
     info "使用 stringer.jar 进行字符串加密..."
     if java -jar "$STRINGER_JAR" --input "$obf" --output "$secure" --mode xor 2>&1 | sed 's/^/    /'; then
@@ -591,13 +657,10 @@ obfuscate_advanced(){
     cp -f "$obf" "$secure"
   fi
   
-  # 注入反调试代码
   inject_antidebug_into_jar "$secure" || warn "注入 anti-debug 失败"
-  
-  # 复制到 release 目录
-  cp -f "$secure" "$(dirname "$jar")/../release/"
+  ensure_dir "$BASE/release"
+  cp -f "$secure" "$BASE/release/" || true
   ok "进阶混淆完成 -> $(basename "$secure")"
-  
   return 0
 }
 
@@ -618,7 +681,7 @@ zkm_deobf_single(){
   [[ ! -f "$input" ]] && { err "输入 Jar 不存在: $input"; return 1; }
   ensure_dir "$BASE/release/deobf"
   echo "Transformer: 1) s11 2) si11 3) rvm11 4) cf11 5) all"
-  read -p "选择 (1-5, default 5): " t
+  read -r -p "选择 (1-5, default 5): " t
   t=${t:-5}
   case "$t" in
     1) trans="s11" ;;
@@ -672,13 +735,13 @@ cfr_decompile_single(){
 # Fabric / Forge MDK download
 # -------------------------
 download_fabric_mdk(){
-  read -p "输入 Minecraft 版本 (例: 1.20.1): " mcver
+  read -r -p "输入 Minecraft 版本 (例: 1.20.1): " mcver
   [[ -z "$mcver" ]] && { warn "取消"; return 1; }
   dest="$PROJECTS_LOCAL/fabric-$mcver"
   ensure_dir "$dest"
-  tmp="/tmp/fabric-example-$mcver.zip"
+  tmp="$TMPDIR/fabric-example-$mcver.zip"
   info "下载 Fabric example skeleton (可能需要手动调整 mc 版本)"
-  wget -q -O "$tmp" "https://github.com/FabricMC/fabric-example-mod/archive/refs/heads/1.20.zip" || { err "下载失败"; return 1; }
+  if ! wget -q -O "$tmp" "https://github.com/FabricMC/fabric-example-mod/archive/refs/heads/1.20.zip"; then err "下载失败"; return 1; fi
   unzip -q "$tmp" -d "$dest"
   mv "$dest"/fabric-example-mod-*/* "$dest"/ 2>/dev/null || true
   rm -f "$tmp"
@@ -686,15 +749,15 @@ download_fabric_mdk(){
 }
 
 download_forge_mdk(){
-  read -p "输入 Minecraft 版本 (例: 1.20.1): " mcver
+  read -r -p "输入 Minecraft 版本 (例: 1.20.1): " mcver
   [[ -z "$mcver" ]] && { warn "取消"; return 1; }
-  info "尝试获取 Forge 最新 promotion 对应 $mcver (可能需要手动确认)"
-  JSON=$(curl -s https://files.minecraftforge.net/maven/net/minecraftforge/forge/promotions_slim.json 2>/dev/null)
+  info "尝试获取 Forge promotion 列表 (如果失败将请求手动输入完整版本号)"
+  JSON=$(curl -s https://files.minecraftforge.net/maven/net/minecraftforge/forge/promotions_slim.json 2>/dev/null || true)
   ver=""
   if [[ -n "$JSON" ]]; then ver=$(echo "$JSON" | grep -o "\"$mcver-[^\"]*\"" | head -n1 | tr -d '"'); fi
-  if [[ -z "$ver" ]]; then read -p "输入 Forge 完整版本 (如 1.20.1-47.1.0) 或回车取消: " fullv; [[ -z "$fullv" ]] && { warn "取消"; return 1; }; ver="$fullv"; fi
+  if [[ -z "$ver" ]]; then read -r -p "输入 Forge 完整版本 (如 1.20.1-47.1.0) 或回车取消: " fullv; [[ -z "$fullv" ]] && { warn "取消"; return 1; }; ver="$fullv"; fi
   url="https://maven.minecraftforge.net/net/minecraftforge/forge/${ver}/forge-${ver}-mdk.zip"
-  tmp="/tmp/forge-${ver}.zip"
+  tmp="$TMPDIR/forge-${ver}.zip"
   if wget -q -O "$tmp" "$url"; then
     dest="$PROJECTS_LOCAL/forge-$ver"
     ensure_dir "$dest"
@@ -727,8 +790,8 @@ build_menu(){
   echo "4) 生成 Gradle Wrapper"
   echo "5) 构建并发布 release (并选择混淆)"
   echo "6) 返回"
-  read -p "选择: " opt
-  build_log="/tmp/mcdev_build_$(date +%s).log"
+  read -r -p "选择: " opt
+  build_log="$TMPDIR/mcdev_build_$(date +%s).log"
   case "$opt" in
     1)
       if [[ "$modtype" == "fabric" || "$modtype" == "quilt" ]]; then
@@ -752,7 +815,7 @@ build_menu(){
       [[ -z "$finaljar" ]] && { err "未找到 Jar"; return 1; }
       publish_release "$dir" "$finaljar"
       echo "混淆选项: 1) ProGuard 2) 进阶 3) Secure 4) 不混淆"
-      read -p "选择: " mix
+      read -r -p "选择: " mix
       case "$mix" in
         1) obfuscate_basic "$dir" "$finaljar" ;;
         2) obfuscate_advanced "$dir" "$finaljar" ;;
@@ -776,8 +839,12 @@ batch_build_all(){
   for d in "$PROJECT_BASE"/*; do
     [[ -d "$d" ]] || continue
     info "构建: $(basename "$d")"
-    build_menu "$d" || { warn "项目 $(basename "$d") 失败"; fail_list+=("$(basename "$d")"); continue; }
-    success_list+=("$(basename "$d")")
+    if build_menu "$d"; then
+      success_list+=("$(basename "$d")")
+    else
+      warn "项目 $(basename "$d") 失败"
+      fail_list+=("$(basename "$d")")
+    fi
   done
   echo "批量构建完成. 成功: ${success_list[*]}  失败: ${fail_list[*]}"
 }
@@ -810,10 +877,10 @@ full_pipeline_project(){
 # -------------------------
 clear_gradle_cache(){
   warn "将删除 ~/.gradle/caches（确认）"
-  read -p "确认删除 Gradle 缓存？(y/N): " yn
+  read -r -p "确认删除 Gradle 缓存？(y/N): " yn
   [[ "$yn" =~ ^[Yy]$ ]] || { warn "取消"; return 0; }
   rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/wrapper/dists" 2>/dev/null || true
-  gradle --stop 2>/dev/null || true
+  if command -v gradle >/dev/null 2>&1; then gradle --stop 2>/dev/null || true; fi
   ok "Gradle 缓存已清理"
 }
 
@@ -823,13 +890,13 @@ clear_gradle_cache(){
 main_menu(){
   load_config
   check_storage_and_hint
-  ensure_basic_tools
+  ensure_basic_tools || warn "检查/安装基础工具失败，继续但某些功能可能不可用"
   configure_gradle_optimization
   ensure_dir "$TOOLS_DIR" "$BASE/release" "$BASE/release/deobf" "$BASE/decompile"
 
   while true; do
     echo ""
-    echo -e "${CYAN}=== MCDev Ultimate Pipeline (Final) ===${RESET}"
+    echo -e "${CYAN}=== MCDev Ultimate Pipeline (Optimized) ===${RESET}"
     echo "Project base: $PROJECT_BASE"
     echo "1) 克隆 GitHub 项目 (并进入构建)"
     echo "2) 选择已拉取项目 (构建菜单)"
@@ -849,7 +916,7 @@ main_menu(){
     echo "16) 清理 Gradle 缓存"
     echo "17) 显示 / 编辑 PROJECT_BASE"
     echo "0) 退出"
-    read -p "选择: " opt
+    read -r -p "选择: " opt
     case "$opt" in
       1) clone_repo ;;
       2) choose_existing_project ;;
@@ -863,15 +930,15 @@ main_menu(){
       10) ensure_zkm ;;
       11) choose_existing_project ;;  # enters build_menu
       12) batch_build_all ;;
-      13) read -p "项目路径 (留空选择项目): " p
+      13) read -r -p "项目路径 (留空选择项目): " p
          if [[ -z "$p" ]]; then choose_existing_project; else full_pipeline_project "$p"; fi ;;
       14) batch_zkm_deobf ;;
-      15) read -p "deobf jar 路径 (回车自动): " j
+      15) read -r -p "deobf jar 路径 (回车自动): " j
          j=${j:-$(ls "$BASE"/release/deobf/*.jar 2>/dev/null | head -n1)}
          [[ -n "$j" ]] && cfr_decompile_single "$j" || warn "未找到 jar" ;;
       16) clear_gradle_cache ;;
       17) echo "当前 PROJECT_BASE=$PROJECT_BASE"
-         read -p "输入新 PROJECT_BASE (回车保持): " newp
+         read -r -p "输入新 PROJECT_BASE (回车保持): " newp
          [[ -n "$newp" ]] && { PROJECT_BASE="$newp"; save_config; } ;;
       0) info "退出"; exit 0 ;;
       *) warn "无效选项" ;;
