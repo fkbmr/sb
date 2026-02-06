@@ -143,7 +143,7 @@ ensure_basic_tools() {
 
     echo -e "\n开始检查基础工具..."
     local need=()
-    for t in git wget curl unzip zip tar sed awk grep javac java; do
+    for t in git wget curl unzip zip tar sed awk grep; do
       if ! command -v "$t" &>/dev/null; then need+=("$t"); fi
     done
 
