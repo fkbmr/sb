@@ -155,7 +155,7 @@ auto_install_jdk(){
 
   dest="$HOME/jdk-$ver"
   ensure_dir "$dest"
-  api_url="https://api.adoptium.net/v3/binary/latest/${ver}/ga/linux/${arch_dl}/jdk/hotspot/normal/eclipse"
+  api_url="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/v3/binary/latest/${ver}/ga/linux/${arch_dl}/jdk/hotspot/normal/eclipse"
   info "将通过 Adoptium API 下载 JDK $ver ..."
   tmp="/tmp/jdk${ver}.tar.gz"
   if wget -O "$tmp" "$api_url"; then
