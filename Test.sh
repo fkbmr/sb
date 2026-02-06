@@ -428,22 +428,36 @@ EOF
 # Git clone (proxy options) and place selection
 # -------------------------
 clone_repo(){
-  read -r -p "仓库 (user/repo 或 完整 URL): " repo_input
+  read -p "仓库 (user/repo 或 完整 URL): " repo_input
   [[ -z "$repo_input" ]] && { warn "取消"; return 1; }
+  
+  if [[ "$repo_input" =~ github\.com ]]; then
+      repo_input="${repo_input%.git}"
+      repo_input=$(echo "$repo_input" | sed -E 's|https?://(www\.)?github\.com/||')
+  fi
+
+  # 验证输入格式
+  if [[ ! "$repo_input" =~ ^https?:// ]] && [[ ! "$repo_input" =~ ^[^/]+/[^/]+$ ]]; then
+    err "格式错误，应为 user/repo 或完整URL"
+    return 1
+  fi
   
   if [[ "$repo_input" =~ ^https?:// ]]; then 
     repo_url="$repo_input"
   else
-    echo "是否使用镜像加速?"
-    echo "1) gh-proxy.org   2) ghproxy.com   3) hub.fastgit.xyz   4) 自定义   5) 不使用"
-    read -r -p "选择 [1-5]: " proxy
+    echo "检测到 GitHub 仓库，是否使用镜像加速?"
+    echo "1) gh-proxy.org"
+    echo "2) ghproxy.com"
+    echo "3) hub.fastgit.xyz"
+    echo "4) 自定义"
+    echo "5) 不使用 (官方源)"
+    read -p "选择 [1-5]: " proxy
     case "$proxy" in
       1) base="https://gh-proxy.org/https://github.com/" ;;
       2) base="https://ghproxy.com/https://github.com/" ;;
-      3) base="https://hub.fastgit.xyz/" ;;
-      4) read -r -p "输入镜像前缀 (例如 https://myproxy/): " custom
-         [[ -n "$custom" ]] || { warn "自定义为空，使用默认"; custom=""; }
-         [[ "$custom" != */ && -n "$custom" ]] && custom="${custom}/"
+      3) base="https://hub.fastgit.xyz/" ;; 
+      4) read -p "输入镜像前缀 (例如 https://myproxy/): " custom
+         [[ "$custom" != */ ]] && custom="${custom}/"
          base="${custom}https://github.com/" ;;
       *) base="https://github.com/" ;;
     esac
@@ -452,40 +466,45 @@ clone_repo(){
 
   load_config
   
+  # 设置默认路径
   local default_target="${PROJECT_BASE:-$PROJECTS_LOCAL}"
   [[ -z "$default_target" ]] && default_target="$HOME/projects"
   
   echo "选择存放位置 (默认: $default_target):"
   echo "1) 本地: $PROJECTS_LOCAL"
-  if [[ "$IS_TERMUX" == "true" && -n "$PROJECTS_SDCARD" ]]; then 
+  if [[ "$IS_TERMUX" == "true" ]] && [[ -n "$PROJECTS_SDCARD" ]]; then 
     echo "2) 共享: $PROJECTS_SDCARD"
   fi
   echo "3) 自定义路径"
-  read -r -p "选择 [Enter=默认]: " choice
+  read -p "选择 [Enter=默认]: " choice
   
   case "$choice" in
     2) target="${PROJECTS_SDCARD:-$default_target}" ;;
-    3) read -r -p "输入目标路径: " customp
+    3) read -p "输入目标路径: " customp
        target="${customp:-$default_target}" ;;
     *) target="${PROJECTS_LOCAL:-$default_target}" ;;
   esac
   
+  # 确保路径存在且可写
   ensure_dir "$target" || { err "无法创建目录: $target"; return 1; }
+  
   save_config
   
-  local repo_name
-  repo_name=$(basename "$repo_input" .git)
+  # 提取仓库名
+  local repo_name=$(basename "$repo_input" .git)
   local target_path="$target/$repo_name"
   
   info "克隆到: $target_path"
   
+  # 检查是否已存在
   if [[ -d "$target_path" ]]; then
     warn "目录已存在: $target_path"
-    read -r -p "是否删除并重新克隆? (y/N): " confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then rm -rf "$target_path"; else info "跳过克隆"; return 0; fi
+    read -p "是否删除并重新克隆? (y/N): " confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] && rm -rf "$target_path" || { info "跳过克隆"; return 0; }
   fi
   
   git clone "$repo_url" "$target_path" || { err "git clone 失败"; return 1; }
+  
   ok "克隆完成"
   
   if cd "$target_path" 2>/dev/null; then
@@ -497,6 +516,7 @@ clone_repo(){
     return 1
   fi
 }
+
 
 # -------------------------
 # Choose existing project
