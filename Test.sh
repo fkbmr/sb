@@ -152,10 +152,10 @@ auto_install_jdk(){
     x86_64|amd64) arch_dl="x64" ;;
     *) arch_dl="x64" ;;
   esac
-
+  
   dest="$HOME/jdk-$ver"
   ensure_dir "$dest"
-  api_url="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/v3/binary/latest/${ver}/ga/linux/${arch_dl}/jdk/hotspot/normal/eclipse"
+  api_url="https://mirrors.tuna.tsinghua.edu.cn/Adoptium/${ver}/jdk/${arch_dl}/linux/OpenJDK${ver}U-jdk_${arch_dl}_linux_hotspot_21.0.10_7.tar.gz"
   info "将通过 Adoptium API 下载 JDK $ver ..."
   tmp="/tmp/jdk${ver}.tar.gz"
   if wget -O "$tmp" "$api_url"; then
