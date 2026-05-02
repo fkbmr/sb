@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# 注意：原脚本设置了 IFS=$'\n\t'，这会导致 $* 展开时使用换行符分隔参数，造成日志换行。
-# 已将对所有依赖 $* 的函数内部还原 IFS，并在必要时局部修改 IFS。
 IFS=$'\n\t'
 
 # -------------------------
@@ -44,7 +42,6 @@ IS_TERMUX="false"
 # Environment detection
 # -------------------------
 detect_termux() {
-  # TERMUX_VERSION env exists in Termux; prefix path check as fallback
   if [[ -n "${TERMUX_VERSION-}" || "${PREFIX-}" == /data/data/com.termux* || -d "/data/data/com.termux" ]]; then
     IS_TERMUX="true"
     ok "Termux 环境检测通过"
@@ -88,7 +85,6 @@ run_and_log(){ local log="$1"; shift; set +e; "$@" 2>&1 | tee "$log"; rc=${PIPES
 # -------------------------
 load_config(){
   if [[ -f "$CONFIG_FILE" ]]; then
-    # shellcheck source=/dev/null
     source "$CONFIG_FILE"
   fi
   if [[ -z "${PROJECT_BASE:-}" ]]; then
@@ -126,7 +122,7 @@ check_storage_and_hint(){
 }
 
 # -------------------------
-# Ensure basic CLI tools (修复了包名分隔符问题)
+# Ensure basic CLI tools (修复包名分隔符问题)
 # -------------------------
 ensure_basic_tools() {
     if [[ -z "$PKG_INSTALL_CMD" ]]; then
@@ -155,7 +151,7 @@ ensure_basic_tools() {
 }
 
 # -------------------------
-# JDK: auto download and custom install (优化: 防止重复写入配置、修复解压路径)
+# JDK: auto download and custom install (优化：防止重复写入、修复解压路径)
 # -------------------------
 auto_install_jdk(){
   if command -v java >/dev/null 2>&1; then
@@ -187,7 +183,6 @@ auto_install_jdk(){
   dest="$HOME/jdk-$ver"
   ensure_dir "$dest"
 
-  # 使用 Adoptium 官方 API，失败则提示手动输入
   api_url="https://api.adoptium.net/v3/binary/latest/${ver}/ga/linux/${arch_dl}/jdk/hotspot/normal/eclipse"
   info "尝试通过 Adoptium API 下载 JDK $ver ..."
   tmp="$TMPDIR/jdk${ver}.tar.gz"
@@ -204,13 +199,11 @@ auto_install_jdk(){
   fi
 
   info "下载完成，正在解压..."
-  # 先解压到临时目录，再移动到 dest，处理内部目录结构
   local tmp_extract="$TMPDIR/jdk_extract"
   mkdir -p "$tmp_extract"
   if ! tar -xzf "$tmp" -C "$tmp_extract"; then
     err "解压失败"; rm -rf "$tmp_extract" "$tmp"; return 1
   fi
-  # 如果没有 --strip-components，检测并移动内容
   local inner_dir
   inner_dir=$(ls -1 "$tmp_extract" | head -n1)
   if [[ -d "$tmp_extract/$inner_dir" ]]; then
@@ -270,7 +263,6 @@ install_custom_jdk(){
       ;;
     *.zip)
       if ! unzip -q "$src" -d "$dest"; then err "解压失败"; return 1; fi
-      # 对 zip 同样处理可能的内部目录
       local inner_dir
       inner_dir=$(ls -1 "$dest" | head -n1)
       if [[ -d "$dest/$inner_dir" ]]; then
@@ -389,13 +381,11 @@ install_gradle_from_zip(){
   unzip -q -o "$zippath" -d "$dest"
   folder=$(ls -1 "$dest" | head -n1 || true)
   if [[ -x "$dest/$folder/bin/gradle" ]]; then
-    # 可写时建立软链，并写入到 PATH
     if [[ -w /usr/local/bin ]]; then
       ln -sf "$dest/$folder/bin/gradle" /usr/local/bin/gradle 2>/dev/null || true
     else
       ensure_dir "$HOME/.local/bin"
       ln -sf "$dest/$folder/bin/gradle" "$HOME/.local/bin/gradle"
-      # 确保 ~/.local/bin 在 PATH 中，并持久化
       if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
         export PATH="$HOME/.local/bin:$PATH"
       fi
@@ -458,7 +448,7 @@ EOF
 }
 
 # -------------------------
-# Git clone (proxy options) and place selection (保持原有，修复路径未加引号问题)
+# Git clone (修正：克隆后自动更新 PROJECT_BASE)
 # -------------------------
 clone_repo(){
   read -p "仓库 (user/repo 或 完整 URL): " repo_input
@@ -518,7 +508,10 @@ clone_repo(){
   
   ensure_dir "$target" || { err "无法创建目录: $target"; return 1; }
   
+  # 克隆前先保存目标父目录作为新的 PROJECT_BASE
+  PROJECT_BASE="$target"
   save_config
+  ok "已将 PROJECT_BASE 更新为 $target"
   
   local repo_name=$(basename "$repo_input" .git)
   local target_path="$target/$repo_name"
@@ -546,17 +539,85 @@ clone_repo(){
 }
 
 # -------------------------
-# Choose existing project
+# Choose existing project (改进：多目录搜索)
 # -------------------------
 choose_existing_project(){
   load_config
-  ensure_dir "$PROJECT_BASE"
+  # 收集所有可能存放项目的目录
+  local search_dirs=("$PROJECT_BASE")
+  [[ -d "$PROJECTS_LOCAL" ]] && search_dirs+=("$PROJECTS_LOCAL")
+  [[ "$IS_TERMUX" == "true" && -d "$PROJECTS_SDCARD" ]] && search_dirs+=("$PROJECTS_SDCARD")
+  [[ -d "$HOME/storage/shared/Projects" ]] && search_dirs+=("$HOME/storage/shared/Projects")
+
   local dirs=()
-  for d in "$PROJECT_BASE"/*; do [[ -d "$d" ]] && dirs+=("$d"); done
-  if [[ ${#dirs[@]} -eq 0 ]]; then warn "未找到项目在 $PROJECT_BASE"; return 1; fi
+  for base in "${search_dirs[@]}"; do
+    for d in "$base"/*; do
+      [[ -d "$d" ]] && dirs+=("$d")
+    done
+  done
+
+  # 简单去重
+  local unique_dirs=()
+  for d in "${dirs[@]}"; do
+    if [[ ! " ${unique_dirs[*]} " =~ " ${d} " ]]; then
+      unique_dirs+=("$d")
+    fi
+  done
+  dirs=("${unique_dirs[@]}")
+
+  if [[ ${#dirs[@]} -eq 0 ]]; then
+    warn "在所有搜索路径下均未找到项目"
+    echo "当前搜索路径：${search_dirs[*]}"
+    return 1
+  fi
+
   echo "请选择项目："
   select p in "${dirs[@]}" "取消"; do
-    if [[ "$p" == "取消" || -z "$p" ]]; then return 1; else build_menu "$p"; break; fi
+    if [[ "$p" == "取消" || -z "$p" ]]; then
+      return 1
+    else
+      build_menu "$p"
+      break
+    fi
+  done
+}
+
+# 返回目录（供全流程使用）
+choose_existing_project_and_return_dir(){
+  load_config
+  local search_dirs=("$PROJECT_BASE")
+  [[ -d "$PROJECTS_LOCAL" ]] && search_dirs+=("$PROJECTS_LOCAL")
+  [[ "$IS_TERMUX" == "true" && -d "$PROJECTS_SDCARD" ]] && search_dirs+=("$PROJECTS_SDCARD")
+  [[ -d "$HOME/storage/shared/Projects" ]] && search_dirs+=("$HOME/storage/shared/Projects")
+
+  local dirs=()
+  for base in "${search_dirs[@]}"; do
+    for d in "$base"/*; do
+      [[ -d "$d" ]] && dirs+=("$d")
+    done
+  done
+
+  local unique_dirs=()
+  for d in "${dirs[@]}"; do
+    if [[ ! " ${unique_dirs[*]} " =~ " ${d} " ]]; then
+      unique_dirs+=("$d")
+    fi
+  done
+  dirs=("${unique_dirs[@]}")
+
+  if [[ ${#dirs[@]} -eq 0 ]]; then
+    warn "未找到项目"
+    return 1
+  fi
+
+  echo "请选择项目："
+  select p in "${dirs[@]}" "取消"; do
+    if [[ "$p" == "取消" || -z "$p" ]]; then
+      return 1
+    else
+      echo "$p"
+      return 0
+    fi
   done
 }
 
@@ -628,7 +689,7 @@ diagnose_build_failure(){
 }
 
 # -------------------------
-# Obfuscation: ProGuard (basic) - 保持不变
+# Obfuscation: ProGuard (basic)
 # -------------------------
 obfuscate_basic(){
   local dir="$1"
@@ -778,7 +839,7 @@ cfr_decompile_single(){
 }
 
 # -------------------------
-# Fabric / Forge MDK download (路径已加引号)
+# Fabric / Forge MDK download
 # -------------------------
 download_fabric_mdk(){
   read -r -p "输入 Minecraft 版本 (例: 1.20.1): " mcver
@@ -817,7 +878,7 @@ download_forge_mdk(){
 }
 
 # -------------------------
-# 非交互式自动构建 (新增，供批量/全流程使用)
+# 非交互式自动构建 (供批量/全流程使用)
 # -------------------------
 auto_build(){
   local dir="$1"
@@ -860,7 +921,6 @@ auto_build(){
   local finaljar=$(find_final_jar "$dir" "$modtype")
   if [[ -n "$finaljar" ]]; then
     publish_release "$dir" "$finaljar"
-    # 将 jar 路径输出到 stdout，供管道调用
     echo "$finaljar"
     return 0
   else
@@ -870,7 +930,7 @@ auto_build(){
 }
 
 # -------------------------
-# Build menu per project (交互式，保留手动选择)
+# Build menu per project (交互式)
 # -------------------------
 build_menu(){
   local dir="$1"
@@ -927,7 +987,7 @@ build_menu(){
 }
 
 # -------------------------
-# Batch build all projects (改为调用 auto_build)
+# Batch build all projects
 # -------------------------
 batch_build_all(){
   load_config
@@ -947,12 +1007,11 @@ batch_build_all(){
 }
 
 # -------------------------
-# Full pipeline for a single project (使用 auto_build，然后继续后续流程)
+# Full pipeline for a single project
 # -------------------------
 full_pipeline_project(){
   local dir="$1"
   [[ -z "$dir" ]] && { err "需指定项目路径"; return 1; }
-  # auto_build 返回 final jar 路径到 stdout
   local finaljar
   if ! finaljar=$(auto_build "$dir"); then
     err "构建失败，全流程终止"
@@ -984,7 +1043,7 @@ clear_gradle_cache(){
 }
 
 # -------------------------
-# Main menu (微调，选项13调用 full_pipeline_project 的逻辑保持不变)
+# Main menu
 # -------------------------
 main_menu(){
   load_config
@@ -992,6 +1051,16 @@ main_menu(){
   ensure_basic_tools || warn "检查/安装基础工具失败，继续但某些功能可能不可用"
   configure_gradle_optimization
   ensure_dir "$TOOLS_DIR" "$BASE/release" "$BASE/release/deobf" "$BASE/decompile"
+
+  # 首次运行智能提示
+  if [[ ! -d "$PROJECT_BASE" && "$IS_TERMUX" == "true" && -d "$PROJECTS_SDCARD" ]]; then
+    warn "当前 PROJECT_BASE ($PROJECT_BASE) 不存在，是否改用 Termux 共享目录？"
+    read -p "使用 $PROJECTS_SDCARD？(Y/n): " ans
+    if [[ ! "$ans" =~ ^[Nn] ]]; then
+      PROJECT_BASE="$PROJECTS_SDCARD"
+      save_config
+    fi
+  fi
 
   while true; do
     echo ""
@@ -1027,12 +1096,10 @@ main_menu(){
       8) ensure_gradle_wrapper ;;
       9) ensure_proguard ;;
       10) ensure_zkm ;;
-      11) choose_existing_project ;;   # 会进入构建菜单，与选项2相同
+      11) choose_existing_project ;;   # 进入构建菜单
       12) batch_build_all ;;
       13) read -r -p "项目路径 (留空选择项目): " p
          if [[ -z "$p" ]]; then 
-           # 选择项目后需要其路径，原 choose_existing_project 交互式，此处简单处理
-           # 可直接列出项目让用户选择
            local selected_dir
            selected_dir=$(choose_existing_project_and_return_dir 2>/dev/null || true)
            if [[ -n "$selected_dir" ]]; then full_pipeline_project "$selected_dir"; fi
@@ -1050,19 +1117,6 @@ main_menu(){
       0) info "退出"; exit 0 ;;
       *) warn "无效选项" ;;
     esac
-  done
-}
-
-# 辅助：选择项目并仅返回路径（用于选项13）
-choose_existing_project_and_return_dir(){
-  load_config
-  ensure_dir "$PROJECT_BASE"
-  local dirs=()
-  for d in "$PROJECT_BASE"/*; do [[ -d "$d" ]] && dirs+=("$d"); done
-  if [[ ${#dirs[@]} -eq 0 ]]; then warn "未找到项目"; return 1; fi
-  echo "请选择项目："
-  select p in "${dirs[@]}" "取消"; do
-    if [[ "$p" == "取消" || -z "$p" ]]; then return 1; else echo "$p"; return 0; fi
   done
 }
 
