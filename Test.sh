@@ -12,7 +12,7 @@ export TMPDIR="${TMPDIR:-$_TMPDIR}"
 
 # Colors
 RED="\033[1;31m"; GREEN="\033[1;32m"; YELLOW="\033[1;33m"; BLUE="\033[1;34m"; CYAN="\033[1;36m"; RESET="\033[0m"
-# 输出函数：局部 IFS 恢复默认，避免换行符分隔导致日志无法阅读
+# 输出函数：局部 IFS 恢复默认
 info(){ local IFS=' '; echo -e "${BLUE}[INFO]${RESET} $*"; }
 ok()  { local IFS=' '; echo -e "${GREEN}[OK]${RESET} $*"; }
 warn(){ local IFS=' '; echo -e "${YELLOW}[WARN]${RESET} $*" >&2; }
@@ -23,7 +23,8 @@ err() { local IFS=' '; echo -e "${RED}[ERR]${RESET} $*" >&2; }
 # -------------------------
 BASE="${BASE:-$HOME/modpipeline}"
 PROJECTS_LOCAL="${PROJECTS_LOCAL:-$HOME/projects}"
-PROJECTS_SDCARD="${PROJECTS_SDCARD:-$HOME/storage/shared/Projects}"   # Termux shared path
+# 通用 Android 共享存储路径（兼容 Termux 和 proot Debian）
+PROJECTS_SDCARD="${PROJECTS_SDCARD:-/sdcard/Projects}"   # 优先 /sdcard，若不可写可动态调整
 TOOLS_DIR="${TOOLS_DIR:-$BASE/tools}"
 PROGUARD_DIR="$TOOLS_DIR/proguard"
 PROGUARD_JAR="$PROGUARD_DIR/proguard.jar"
@@ -37,6 +38,7 @@ GRADLE_USER_HOME="${GRADLE_USER_HOME:-$HOME/.gradle}"
 SDCARD_DOWNLOAD="${SDCARD_DOWNLOAD:-/sdcard/Download}"
 ARCH="$(uname -m)"
 IS_TERMUX="false"
+IS_ANDROID="false"   # 新增：是否在 Android 设备上
 
 # -------------------------
 # Environment detection
@@ -49,10 +51,30 @@ detect_termux() {
     IS_TERMUX="false"
   fi
 }
+
+detect_android() {
+  # 检测是否在 Android 设备（包括 Termux、proot Debian 等）
+  if [[ -d /sdcard || -d /storage/emulated/0 || -d /data/data/com.termux ]]; then
+    IS_ANDROID="true"
+    ok "Android 环境检测通过"
+  else
+    IS_ANDROID="false"
+  fi
+}
+
 detect_termux
+detect_android
+
+# 如果 IS_ANDROID 为 true 且 PROJECTS_SDCARD 仍为默认无效路径，尝试修正
+if [[ "$IS_ANDROID" == "true" ]]; then
+    # 优先使用 /sdcard，若不可用则尝试 /storage/emulated/0
+    if [[ ! -d /sdcard && -d /storage/emulated/0 ]]; then
+        PROJECTS_SDCARD="/storage/emulated/0/Projects"
+    fi
+fi
 
 # -------------------------
-# Package installer helper
+# Package installer helper (适配 proot Debian，不使用 sudo)
 # -------------------------
 ensure_pkg_cmd() {
   if [[ "$IS_TERMUX" == "true" ]]; then
@@ -60,7 +82,8 @@ ensure_pkg_cmd() {
     return 0
   fi
   if command -v apt >/dev/null 2>&1; then
-    echo "sudo apt update && sudo apt install -y"
+    # proot Debian 中通常可直接使用 apt，无需 sudo
+    echo "apt update && apt install -y"
     return 0
   fi
   if command -v dnf >/dev/null 2>&1; then
@@ -88,7 +111,12 @@ load_config(){
     source "$CONFIG_FILE"
   fi
   if [[ -z "${PROJECT_BASE:-}" ]]; then
-    if [[ -d "$PROJECTS_SDCARD" ]]; then PROJECT_BASE="$PROJECTS_SDCARD"; else PROJECT_BASE="$PROJECTS_LOCAL"; fi
+    # 优先使用配置中的路径，否则根据环境检测选择
+    if [[ "$IS_ANDROID" == "true" && -d "$PROJECTS_SDCARD" ]]; then
+      PROJECT_BASE="$PROJECTS_SDCARD"
+    else
+      PROJECT_BASE="$PROJECTS_LOCAL"
+    fi
   fi
 }
 save_config(){
@@ -104,6 +132,7 @@ EOF
 # -------------------------
 check_storage_and_hint(){
   if [[ "$IS_TERMUX" == "true" ]]; then
+    # 仅在真正 Termux 环境下尝试配置共享存储
     if [[ ! -d "$HOME/storage/shared" && ! -d /sdcard ]]; then
       warn "Termux 未挂载共享存储 (~/storage/shared 或 /sdcard)。"
       read -r -p "现在运行 termux-setup-storage 授权？(y/N): " yn
@@ -118,11 +147,16 @@ check_storage_and_hint(){
         warn "将使用本地目录作为 fallback。"
       fi
     fi
+  elif [[ "$IS_ANDROID" == "true" ]]; then
+    # proot Debian 环境，仅检查 /sdcard 是否可用
+    if [[ ! -d /sdcard ]]; then
+      warn "未检测到 /sdcard，请确认存储已挂载。否则将使用本地目录。"
+    fi
   fi
 }
 
 # -------------------------
-# Ensure basic CLI tools (修复包名分隔符问题)
+# Ensure basic CLI tools
 # -------------------------
 ensure_basic_tools() {
     if [[ -z "$PKG_INSTALL_CMD" ]]; then
@@ -142,7 +176,6 @@ ensure_basic_tools() {
     fi
 
     echo "将尝试安装: ${need[*]}"
-    # 临时将 IFS 设为空格，确保包名以空格分隔传递给命令
     ( IFS=' '; bash -c "$PKG_INSTALL_CMD ${need[*]}" ) || {
         warn "自动安装部分工具失败，请手动安装: ${need[*]}"
         return 1
@@ -151,7 +184,7 @@ ensure_basic_tools() {
 }
 
 # -------------------------
-# JDK: auto download and custom install (优化：防止重复写入、修复解压路径)
+# JDK: auto download and custom install (保持不变)
 # -------------------------
 auto_install_jdk(){
   if command -v java >/dev/null 2>&1; then
@@ -295,7 +328,7 @@ install_custom_jdk(){
 }
 
 # -------------------------
-# ProGuard auto-download
+# ProGuard auto-download (保持不变)
 # -------------------------
 ensure_proguard(){
   if [[ -f "$PROGUARD_JAR" ]]; then ok "ProGuard 就绪"; return 0; fi
@@ -344,7 +377,7 @@ ensure_cfr(){
 }
 
 # -------------------------
-# Gradle wrapper / install (优化 Gradle 安装路径追加至配置)
+# Gradle wrapper / install
 # -------------------------
 ensure_gradle_wrapper(){
   if [[ -f "./gradlew" ]]; then chmod +x ./gradlew 2>/dev/null || true; ok "gradlew 已存在"; return 0; fi
@@ -418,7 +451,7 @@ ensure_maven(){
 }
 
 # -------------------------
-# Gradle optimization & init (mirrors)
+# Gradle optimization & init
 # -------------------------
 configure_gradle_optimization(){
   ensure_dir "$GRADLE_USER_HOME"
@@ -448,7 +481,7 @@ EOF
 }
 
 # -------------------------
-# Git clone (修正：克隆后自动更新 PROJECT_BASE)
+# Git clone (适配 Android 路径)
 # -------------------------
 clone_repo(){
   read -p "仓库 (user/repo 或 完整 URL): " repo_input
@@ -493,7 +526,7 @@ clone_repo(){
   
   echo "选择存放位置 (默认: $default_target):"
   echo "1) 本地: $PROJECTS_LOCAL"
-  if [[ "$IS_TERMUX" == "true" ]] && [[ -n "$PROJECTS_SDCARD" ]]; then 
+  if [[ "$IS_ANDROID" == "true" ]] && [[ -n "$PROJECTS_SDCARD" ]]; then 
     echo "2) 共享: $PROJECTS_SDCARD"
   fi
   echo "3) 自定义路径"
@@ -508,7 +541,6 @@ clone_repo(){
   
   ensure_dir "$target" || { err "无法创建目录: $target"; return 1; }
   
-  # 克隆前先保存目标父目录作为新的 PROJECT_BASE
   PROJECT_BASE="$target"
   save_config
   ok "已将 PROJECT_BASE 更新为 $target"
@@ -539,15 +571,17 @@ clone_repo(){
 }
 
 # -------------------------
-# Choose existing project (改进：多目录搜索)
+# Choose existing project (适配 Android 路径)
 # -------------------------
 choose_existing_project(){
   load_config
-  # 收集所有可能存放项目的目录
   local search_dirs=("$PROJECT_BASE")
   [[ -d "$PROJECTS_LOCAL" ]] && search_dirs+=("$PROJECTS_LOCAL")
-  [[ "$IS_TERMUX" == "true" && -d "$PROJECTS_SDCARD" ]] && search_dirs+=("$PROJECTS_SDCARD")
-  [[ -d "$HOME/storage/shared/Projects" ]] && search_dirs+=("$HOME/storage/shared/Projects")
+  if [[ "$IS_ANDROID" == "true" ]]; then
+    [[ -d "$PROJECTS_SDCARD" ]] && search_dirs+=("$PROJECTS_SDCARD")
+    [[ -d "/sdcard/Projects" ]] && search_dirs+=("/sdcard/Projects")
+    [[ -d "$HOME/storage/shared/Projects" ]] && search_dirs+=("$HOME/storage/shared/Projects")
+  fi
 
   local dirs=()
   for base in "${search_dirs[@]}"; do
@@ -556,7 +590,6 @@ choose_existing_project(){
     done
   done
 
-  # 简单去重
   local unique_dirs=()
   for d in "${dirs[@]}"; do
     if [[ ! " ${unique_dirs[*]} " =~ " ${d} " ]]; then
@@ -582,13 +615,15 @@ choose_existing_project(){
   done
 }
 
-# 返回目录（供全流程使用）
 choose_existing_project_and_return_dir(){
   load_config
   local search_dirs=("$PROJECT_BASE")
   [[ -d "$PROJECTS_LOCAL" ]] && search_dirs+=("$PROJECTS_LOCAL")
-  [[ "$IS_TERMUX" == "true" && -d "$PROJECTS_SDCARD" ]] && search_dirs+=("$PROJECTS_SDCARD")
-  [[ -d "$HOME/storage/shared/Projects" ]] && search_dirs+=("$HOME/storage/shared/Projects")
+  if [[ "$IS_ANDROID" == "true" ]]; then
+    [[ -d "$PROJECTS_SDCARD" ]] && search_dirs+=("$PROJECTS_SDCARD")
+    [[ -d "/sdcard/Projects" ]] && search_dirs+=("/sdcard/Projects")
+    [[ -d "$HOME/storage/shared/Projects" ]] && search_dirs+=("$HOME/storage/shared/Projects")
+  fi
 
   local dirs=()
   for base in "${search_dirs[@]}"; do
@@ -622,7 +657,7 @@ choose_existing_project_and_return_dir(){
 }
 
 # -------------------------
-# Detect mod type / mc version / gradle task
+# Detect mod type / mc version / gradle task (不变)
 # -------------------------
 detect_mod_type(){
   local dir="$1"
@@ -669,7 +704,7 @@ publish_release(){
   ensure_dir "$dir/release"
   cp -f "$jar" "$dir/release/"
   ok "已复制到: $dir/release/$(basename "$jar")"
-  if [[ -d /sdcard || -d "$HOME/storage/shared" ]]; then
+  if [[ "$IS_ANDROID" == "true" ]]; then
     mkdir -p "$SDCARD_DOWNLOAD" 2>/dev/null || true
     cp -f "$jar" "$SDCARD_DOWNLOAD/" 2>/dev/null || true
     ok "已尝试复制到: $SDCARD_DOWNLOAD/$(basename "$jar")"
@@ -677,7 +712,7 @@ publish_release(){
 }
 
 # -------------------------
-# Diagnose build failure
+# Diagnose build failure (不变)
 # -------------------------
 diagnose_build_failure(){
   local log="$1"
@@ -689,7 +724,7 @@ diagnose_build_failure(){
 }
 
 # -------------------------
-# Obfuscation: ProGuard (basic)
+# Obfuscation functions (不变)
 # -------------------------
 obfuscate_basic(){
   local dir="$1"
@@ -715,9 +750,6 @@ EOF
   fi
 }
 
-# -------------------------
-# Advanced obfuscation & anti-debug
-# -------------------------
 inject_antidebug_into_jar(){
   local target="$1"
   local tmpd
@@ -839,7 +871,7 @@ cfr_decompile_single(){
 }
 
 # -------------------------
-# Fabric / Forge MDK download
+# Fabric / Forge MDK download (不变)
 # -------------------------
 download_fabric_mdk(){
   read -r -p "输入 Minecraft 版本 (例: 1.20.1): " mcver
@@ -878,7 +910,7 @@ download_forge_mdk(){
 }
 
 # -------------------------
-# 非交互式自动构建 (供批量/全流程使用)
+# 非交互式自动构建 (不变)
 # -------------------------
 auto_build(){
   local dir="$1"
@@ -930,7 +962,7 @@ auto_build(){
 }
 
 # -------------------------
-# Build menu per project (交互式)
+# Build menu per project (不变)
 # -------------------------
 build_menu(){
   local dir="$1"
@@ -1043,7 +1075,7 @@ clear_gradle_cache(){
 }
 
 # -------------------------
-# Main menu
+# Main menu (适配首次运行提示)
 # -------------------------
 main_menu(){
   load_config
@@ -1052,9 +1084,9 @@ main_menu(){
   configure_gradle_optimization
   ensure_dir "$TOOLS_DIR" "$BASE/release" "$BASE/release/deobf" "$BASE/decompile"
 
-  # 首次运行智能提示
-  if [[ ! -d "$PROJECT_BASE" && "$IS_TERMUX" == "true" && -d "$PROJECTS_SDCARD" ]]; then
-    warn "当前 PROJECT_BASE ($PROJECT_BASE) 不存在，是否改用 Termux 共享目录？"
+  # 首次运行智能提示（使用 IS_ANDROID 替代 IS_TERMUX）
+  if [[ ! -d "$PROJECT_BASE" && "$IS_ANDROID" == "true" && -d "$PROJECTS_SDCARD" ]]; then
+    warn "当前 PROJECT_BASE ($PROJECT_BASE) 不存在，是否改用 Android 共享目录？"
     read -p "使用 $PROJECTS_SDCARD？(Y/n): " ans
     if [[ ! "$ans" =~ ^[Nn] ]]; then
       PROJECT_BASE="$PROJECTS_SDCARD"
@@ -1064,7 +1096,7 @@ main_menu(){
 
   while true; do
     echo ""
-    echo -e "${CYAN}=== MCDev Ultimate Pipeline (Optimized) ===${RESET}"
+    echo -e "${CYAN}=== MCDev Ultimate Pipeline (Android/Debian 适配版) ===${RESET}"
     echo "Project base: $PROJECT_BASE"
     echo "1) 克隆 GitHub 项目 (并进入构建)"
     echo "2) 选择已拉取项目 (构建菜单)"
@@ -1096,7 +1128,7 @@ main_menu(){
       8) ensure_gradle_wrapper ;;
       9) ensure_proguard ;;
       10) ensure_zkm ;;
-      11) choose_existing_project ;;   # 进入构建菜单
+      11) choose_existing_project ;;
       12) batch_build_all ;;
       13) read -r -p "项目路径 (留空选择项目): " p
          if [[ -z "$p" ]]; then 
